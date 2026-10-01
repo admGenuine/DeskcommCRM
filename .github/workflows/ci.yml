@@ -584,6 +584,7 @@ jobs:
         # consultas/hora por IP — o executor próprio é um IP só.
         env:
           GH_TOKEN: ${{ github.token }}
+          CONFERENCIA_KIT_RELEASE: v1.69.0
         run: |
           set -o pipefail
           set +e; pnpm test:db > /tmp/db.log 2>&1; rc=$?; set -e
@@ -598,7 +599,7 @@ jobs:
       # existia desde 2026-08-27 e NENHUM workflow o chamava (issue #454): aqui
       # ele passa a ser gate, nas duas majors, pela mesma variável de imagem.
       - name: update.sh sobre banco COM DADOS (pg${{ matrix.pg }})
-        if: false
+        if: always()
         run: |
           set -o pipefail
           pnpm test:db:update 2>&1 | tee /tmp/dbu.log; rc=${PIPESTATUS[0]}
