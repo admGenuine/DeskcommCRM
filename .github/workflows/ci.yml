@@ -584,7 +584,12 @@ jobs:
         # consultas/hora por IP — o executor próprio é um IP só.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: pnpm test:db
+        run: |
+          set -o pipefail
+          pnpm test:db 2>&1 | tee /tmp/db.log; rc=${PIPESTATUS[0]}
+          grep -aE "FAIL |×|AssertionError|Error:|ERRO|Test Files|Tests |exit" /tmp/db.log | head -45 | sed 's/^/::error::DEBUG /' || true
+          tail -15 /tmp/db.log | sed 's/^/::error::TAIL /' || true
+          exit $rc
 
       # O `update.sh` do cliente roda sobre um banco COM DADOS, e nenhum gate
       # exercitava isso: `test:db` aplica o baseline num banco VAZIO, então
@@ -593,7 +598,13 @@ jobs:
       # existia desde 2026-08-27 e NENHUM workflow o chamava (issue #454): aqui
       # ele passa a ser gate, nas duas majors, pela mesma variável de imagem.
       - name: update.sh sobre banco COM DADOS (pg${{ matrix.pg }})
-        run: pnpm test:db:update
+        if: always()
+        run: |
+          set -o pipefail
+          pnpm test:db:update 2>&1 | tee /tmp/dbu.log; rc=${PIPESTATUS[0]}
+          grep -aE "FAIL |×|✗|AssertionError|Error:|ERRO|falh" /tmp/dbu.log | head -30 | sed 's/^/::error::DEBUG-UPDATE /' || true
+          tail -10 /tmp/dbu.log | sed 's/^/::error::TAIL-UPDATE /' || true
+          exit $rc
 
   # O NOME DESTE JOB É O CHECK OBRIGATÓRIO, e é por isso que ele existe — mesmo
   # padrão do `e2e` em e2e.yml e do `imagens-ok` em publish-image.yml.
