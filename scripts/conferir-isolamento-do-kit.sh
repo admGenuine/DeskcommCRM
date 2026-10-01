@@ -80,13 +80,17 @@ esac
 # rasa também. Numa árvore completa, busca sem --depth — com ele o git marcaria o
 # repositório de quem roda como raso.
 ANTES_DO_FILTRO="v1.63.0"
+REPO_ORIGINAL="https://github.com/melgarafael/DeskcommCRM.git"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/deskcomm-update-sh.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 update_sh_da() {  # update_sh_da <tag> — caminho de uma cópia do update.sh da tag
   if ! git -C "$ROOT" rev-parse -q --verify "refs/tags/$1^{commit}" >/dev/null; then
     local profundidade=""
     [ "$(git -C "$ROOT" rev-parse --is-shallow-repository)" = true ] && profundidade="--depth=1"
-    git -C "$ROOT" fetch -q --no-tags $profundidade origin "+refs/tags/$1:refs/tags/$1"
+    # FORK DA GENUINE: o fork não carrega as tags do projeto original (a v1.63.0
+    # desta conferência, por exemplo). Sem a tag no `origin`, busca no original.
+    git -C "$ROOT" fetch -q --no-tags $profundidade origin "+refs/tags/$1:refs/tags/$1" 2>/dev/null \
+      || git -C "$ROOT" fetch -q --no-tags $profundidade "$REPO_ORIGINAL" "+refs/tags/$1:refs/tags/$1"
   fi
   git -C "$ROOT" show "$1:hostgator-setup-kit/update.sh" > "$TMP/$1"
   printf '%s' "$TMP/$1"
