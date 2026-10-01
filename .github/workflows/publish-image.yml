@@ -150,15 +150,18 @@ jobs:
             echo "não é push de tag (${GITHUB_REF_TYPE}) — nada a conferir"
             exit 0
           fi
-          estado=$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${GITHUB_SHA}" --jq .status)
-          echo "compare main...${GITHUB_SHA} → ${estado}"
+          # FORK DA GENUINE: o ramo que a VPS roda é `producao` (a última release
+          # do projeto original + o trabalho aprovado da Genuine). A `main` do
+          # fork só espelha o original e carrega código ainda não lançado lá.
+          estado=$(gh api "repos/${GITHUB_REPOSITORY}/compare/producao...${GITHUB_SHA}" --jq .status)
+          echo "compare producao...${GITHUB_SHA} → ${estado}"
           # `identical` = a tag é o topo da main; `behind` = está atrás dela, ou
           # seja, contida. `ahead` e `diverged` são commit que a main não tem.
           case "$estado" in
-            identical|behind) echo "ok: o commit da tag está contido na main" ;;
+            identical|behind) echo "ok: o commit da tag está contido na producao" ;;
             *)
-              echo "::error::A tag ${GITHUB_REF_NAME} aponta para um commit que a main NÃO contém (${estado})."
-              echo "::error::Publicar isso entregaria ao parque instalado código que nunca passou pelo CI da main."
+              echo "::error::A tag ${GITHUB_REF_NAME} aponta para um commit que a producao NÃO contém (${estado})."
+              echo "::error::Publicar isso entregaria ao parque instalado código que nunca passou pelo CI da producao."
               exit 1
               ;;
           esac

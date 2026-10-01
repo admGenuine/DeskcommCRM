@@ -36,7 +36,8 @@ describe("nenhuma tag publica sem estar contida na main", () => {
 
   it("a trava aceita EXATAMENTE `identical` e `behind`, e nada mais", () => {
     const t = job(publish, "a-tag-veio-da-main");
-    expect(t).toContain("compare/main...");
+    // Fork da Genuine: o ramo de produção é `producao`, não a `main` espelho.
+    expect(t).toContain("compare/producao...");
 
     // Prende o CONJUNTO aceito, não a ausência de uma string. A primeira versão
     // deste caso proibia `/\bahead\|/` — e passou verde quando a sabotagem
