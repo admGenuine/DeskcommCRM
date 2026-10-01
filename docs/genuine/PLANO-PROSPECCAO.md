@@ -27,9 +27,10 @@ Se uma tarefa parecer exigir acesso à VPS, ao banco de produção ou ao WhatsAp
 
 1. Leia e siga o `CLAUDE.md` e o `AGENTS.md` deste repositório. São as regras do projeto (multi-tenancy com `organization_id`, RLS, idempotência, LGPD, migrations versionadas, testes). Elas valem aqui também.
 2. Git neste fork:
-   - a `main` do fork é o que vai para a VPS. Ela recebe o projeto original (`upstream`, `melgarafael/DeskcommCRM`) mais o trabalho aprovado da Genuine;
-   - o trabalho em andamento fica em branches `genuine/<assunto>`, e só entra na `main` por pull request, depois do CI verde e do meu "ok";
-   - para trazer novidades do projeto original: `git fetch upstream` e `merge`, nunca `reset --hard` nem `push --force`.
+   - o ramo **`producao`** é o que vai para a VPS: a última release do projeto original mais o trabalho aprovado da Genuine. Regras completas em `docs/genuine/FORK.md`;
+   - a `main` do fork só espelha o projeto original e **nunca** vai para a VPS;
+   - o trabalho em andamento fica em branches `genuine/<assunto>`, criadas a partir de `producao`, e só entra em `producao` por pull request, depois do CI verde e do meu "ok";
+   - novidades do projeto original entram só por **release** (tag `vX.Y.Z`), nunca pela ponta da `main` dele, sempre com `merge`, nunca `reset --hard` nem `push --force`.
 3. **Mantenha o fork fácil de atualizar.** O projeto original lança versão quase todo dia. Concentre o código novo em pasta própria (sugestão: `lib/prospecting/mercado/`, rotas e telas próprias) e mexa o mínimo possível em arquivos existentes. Quando precisar alterar um arquivo do núcleo, me avise e registre o motivo.
 4. Antes de criar tabelas, leia `docs/adr/0002-tabelas-de-modulo-num-banco-so.md`, `docs/doctrine/extensoes.md` e a doutrina de migrations do `CLAUDE.md`. Proponha como numerar as migrations do fork sem colidir com as do projeto original.
 5. Toda mudança vem com testes. Rode `pnpm typecheck`, `pnpm lint` e `pnpm test:unit` antes de dizer que algo está pronto.
