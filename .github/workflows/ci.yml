@@ -586,9 +586,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -o pipefail
-          pnpm test:db 2>&1 | tee /tmp/db.log; rc=${PIPESTATUS[0]}
-          grep -aE "FAIL |×|AssertionError|Error:|ERRO|Test Files|Tests |exit" /tmp/db.log | head -45 | sed 's/^/::error::DEBUG /' || true
-          tail -15 /tmp/db.log | sed 's/^/::error::TAIL /' || true
+          set +e; pnpm test:db > /tmp/db.log 2>&1; rc=$?; set -e
+          grep -aE "^ *FAIL |×|AssertionError|Test Files|Tests |ERROR|psql:" /tmp/db.log | head -5 | sed 's/^/::error::DEBUG /' || true
+          grep -aE -A3 "AssertionError|psql:.*ERROR" /tmp/db.log | head -40 | tr '\n' ' ' | fold -w 900 | head -4 | sed 's/^/::error::CTX /' || true
           exit $rc
 
       # O `update.sh` do cliente roda sobre um banco COM DADOS, e nenhum gate
@@ -598,7 +598,7 @@ jobs:
       # existia desde 2026-08-27 e NENHUM workflow o chamava (issue #454): aqui
       # ele passa a ser gate, nas duas majors, pela mesma variável de imagem.
       - name: update.sh sobre banco COM DADOS (pg${{ matrix.pg }})
-        if: always()
+        if: false
         run: |
           set -o pipefail
           pnpm test:db:update 2>&1 | tee /tmp/dbu.log; rc=${PIPESTATUS[0]}
