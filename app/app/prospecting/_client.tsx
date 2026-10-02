@@ -403,11 +403,19 @@ export function ProspectingClient() {
                   </div>
                   <Badge variant="outline">{t(labels[campaign.status] ?? campaign.status)}</Badge>
                 </div>
-                {campaign.error && (
-                  <p role="alert" className="mt-4 rounded-md bg-destructive/10 p-3 text-sm">
-                    {campaign.error}
-                  </p>
-                )}
+                {campaign.error &&
+                  // Busca concluída e campanha ainda em rascunho: o campo traz o
+                  // AVISO da busca (já em outra campanha, busca interrompida), não
+                  // uma falha. Ver `avisoDaBusca` em lib/prospecting/store.ts.
+                  (campaign.status === "draft" && campaign.search_status === "succeeded" ? (
+                    <p className="mt-4 rounded-md border p-3 text-sm text-muted-foreground">
+                      {campaign.error}
+                    </p>
+                  ) : (
+                    <p role="alert" className="mt-4 rounded-md bg-destructive/10 p-3 text-sm">
+                      {campaign.error}
+                    </p>
+                  ))}
                 <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
                   {[
                     [t("Encontrados"), candidates.length],

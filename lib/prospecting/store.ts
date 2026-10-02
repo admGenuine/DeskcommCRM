@@ -17,7 +17,7 @@ import {
   type SearchInput,
   type Prospect,
 } from "./schema";
-import { avaliarCandidato } from "./aceite";
+import { avaliarCandidato, motivoDeRecusaDoLegado } from "./aceite";
 import {
   ProspectingError,
   providerRequest,
@@ -162,6 +162,27 @@ export async function createSearch(
 /** Estados do provedor em que a busca PAROU antes do fim, mas o que achou até ali está no dataset. */
 const BUSCA_INTERROMPIDA = ["ABORTED", "TIMED-OUT"];
 
+/**
+ * O aviso da busca concluída, em `prospecting_campaigns.error`. Enquanto a
+ * campanha é rascunho, a tela mostra esse campo como AVISO, não como falha.
+ */
+export function avisoDaBusca(r: {
+  interrompida: string | null;
+  inserted: number;
+  jaEmOutraCampanha: number;
+}): string | null {
+  const partes: string[] = [];
+  if (r.interrompida)
+    partes.push(
+      `A busca parou antes do fim (${r.interrompida}); as ${r.inserted} empresas encontradas até ali foram aproveitadas.`,
+    );
+  if (r.jaEmOutraCampanha === 1)
+    partes.push("1 empresa já estava em outra campanha e não foi repetida.");
+  else if (r.jaEmOutraCampanha > 1)
+    partes.push(`${r.jaEmOutraCampanha} empresas já estavam em outra campanha e não foram repetidas.`);
+  return partes.length ? partes.join(" ") : null;
+}
+
 export async function synchronizeSearch(db: pg.PoolClient, admin: SupabaseClient, c: Campaign) {
   if (!c.run_id) return;
   const key = await credential(db, admin, c.organization_id);
@@ -199,10 +220,30 @@ export async function synchronizeSearch(db: pg.PoolClient, admin: SupabaseClient
         ).rows.map((r) => r.phone_number)
       : [],
   );
+  // Empresa que já está em OUTRA campanha não entra de novo (o banco garante:
+  // um lugar e um telefone por organização). Antes ela sumia no número de
+  // "repetidos ou indisponíveis", e quem refazia a mesma busca via 0 empresas
+  // sem entender por quê. Agora a conta sai separada, no aviso da busca.
+  const jaVistos = (
+    await db.query<{ place_id: string; phone: string | null }>(
+      "select place_id,phone from prospecting_candidates where organization_id=$1 and (place_id=any($2::text[]) or phone=any($3::text[]))",
+      [
+        c.organization_id,
+        prospects.map((p) => p.key),
+        prospects.flatMap((p) => (p.phone ? [p.phone] : [])),
+      ],
+    )
+  ).rows;
+  const lugaresVistos = new Set(jaVistos.map((r) => r.place_id));
+  const telefonesVistos = new Set(jaVistos.flatMap((r) => (r.phone ? [r.phone] : [])));
+  const emOutraCampanha = (p: Prospect) =>
+    lugaresVistos.has(p.key) || (!!p.phone && telefonesVistos.has(p.phone));
+  const novos = prospects.filter((p) => !emOutraCampanha(p));
+  const jaEmOutraCampanha = prospects.length - novos.length;
   let inserted = 0;
   await db.query("begin");
   try {
-    for (const p of prospects) {
+    for (const p of novos) {
       const veredito = avaliarCandidato(p, c.search);
       const motivo = !veredito.aprovado
         ? veredito.motivo
@@ -231,10 +272,8 @@ export async function synchronizeSearch(db: pg.PoolClient, admin: SupabaseClient
         dataset,
         run.usageTotalUsd ?? null,
         inserted,
-        items.length - inserted,
-        interrompida
-          ? `A busca parou antes do fim (${run.status}); as ${inserted} empresas encontradas até ali foram aproveitadas.`
-          : null,
+        items.length - inserted - jaEmOutraCampanha,
+        avisoDaBusca({ interrompida: interrompida ? run.status : null, inserted, jaEmOutraCampanha }),
       ],
     );
     await db.query("commit");
@@ -349,6 +388,14 @@ export async function activateCampaign(
       )
     ).rows;
     for (const p of candidates) {
+      const recusaDoLegado = motivoDeRecusaDoLegado(p.data, c.search);
+      if (recusaDoLegado) {
+        await db.query(
+          "update prospecting_candidates set status='skipped',error=$3,updated_at=now() where organization_id=$1 and id=$2",
+          [org, p.id, recusaDoLegado],
+        );
+        continue;
+      }
       if (!p.phone) {
         await db.query(
           "update prospecting_candidates set status='skipped',error=$3 where organization_id=$1 and id=$2",
