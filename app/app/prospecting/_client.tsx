@@ -512,7 +512,7 @@ export function ProspectingClient() {
                           <button
                             type="button"
                             onClick={() => filtrar("recusados", motivo)}
-                            className="flex w-full gap-3 rounded text-left hover:bg-muted"
+                            className="flex w-full gap-3 rounded-md text-left hover:bg-muted"
                           >
                             <span className="w-8 shrink-0 text-right font-medium tabular-nums">
                               {quantos}
