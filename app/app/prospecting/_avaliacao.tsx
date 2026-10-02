@@ -189,8 +189,17 @@ export function AprendizadoCard({ perfil }: { perfil: PerfilAprendido | undefine
     <Card className="p-5">
       <h2 className="text-sm font-semibold">{t("O que a prospecção aprendeu com você")}</h2>
       <p className="mt-1 text-xs text-muted-foreground">
-        {perfil.avaliadas} {t("empresas avaliadas")} · {perfil.de_referencia}{" "}
-        {t("de campanhas de referência")}
+        {perfil.avaliadas}{" "}
+        {perfil.avaliadas === 1 ? t("empresa avaliada por você") : t("empresas avaliadas por você")}
+        {perfil.de_referencia > 0 && (
+          <>
+            {" · "}
+            {perfil.de_referencia}{" "}
+            {perfil.de_referencia === 1
+              ? t("empresa de campanha de referência")
+              : t("empresas de campanhas de referência")}
+          </>
+        )}
       </p>
       {gosta.length > 0 && (
         <div className="mt-3">
