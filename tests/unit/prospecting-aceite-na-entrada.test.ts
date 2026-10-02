@@ -39,7 +39,11 @@ const item = (placeId: string, extra: Record<string, unknown>) => ({
   ...extra,
 });
 
-function banco(noCrm: string[] = [], emOutraCampanha: { place_id: string; phone: string | null }[] = []) {
+function banco(
+  noCrm: string[] = [],
+  emOutraCampanha: { place_id: string; phone: string | null }[] = [],
+  gosto: { categoria: string; nota: string | null; referencia: boolean; error: string | null }[] = [],
+) {
   const inseridos: { status: string; error: string | null; phone: string | null }[] = [];
   const campanhaAtualizada: unknown[][] = [];
   const db = {
@@ -48,6 +52,7 @@ function banco(noCrm: string[] = [], emOutraCampanha: { place_id: string; phone:
         return { rows: [{ credential_encrypted: Buffer.from("00", "hex") }] };
       if (sql.startsWith("select place_id,phone from prospecting_candidates"))
         return { rows: emOutraCampanha };
+      if (sql.includes("p.data->'avaliacao'->>'nota' as nota")) return { rows: gosto };
       if (sql.startsWith("select phone_number from contacts"))
         return {
           rows: (params[1] as string[]).filter((v) => noCrm.includes(v)).map((phone_number) => ({ phone_number })),
@@ -125,6 +130,35 @@ describe("entrada da busca: a régua de aceite e o motivo de cada recusa", () =>
     expect(final.at(-1)).toBe(
       "2 empresas já estavam em outra campanha e não foram repetidas. O Maps não mostrou mais empresas para este termo e local. Para achar outras, mude o termo ou a cidade.",
     );
+  });
+});
+
+describe("o gosto do dono na entrada", () => {
+  it("categoria que o dono recusou duas vezes, sem nenhum gostei, sai com o motivo", async () => {
+    mocks.readSearch.mockResolvedValue({ id: "run1", status: "SUCCEEDED", defaultDatasetId: "ds1" });
+    mocks.readResults.mockResolvedValue([
+      item("naturais", { phone: "(41) 99999-0001", categoryName: "Loja de produtos naturais", title: "Essenza Indústria" }),
+      item("fabrica", { phone: "(41) 99999-0002" }),
+    ]);
+    const naoGostei = { categoria: "Loja de produtos naturais", nota: "nao_gostei", referencia: false, error: null };
+    const { db, inseridos } = banco([], [], [naoGostei, naoGostei]);
+    await synchronizeSearch(db as never, {} as never, campanha);
+    expect(inseridos.map((i) => [i.status, i.error])).toEqual([
+      ["skipped", "Categoria que você marcou como não gostei 2 vezes: Loja de produtos naturais."],
+      ["new", null],
+    ]);
+  });
+
+  it("um gostei na mesma categoria (ou campanha de referência) impede a recusa aprendida", async () => {
+    mocks.readSearch.mockResolvedValue({ id: "run1", status: "SUCCEEDED", defaultDatasetId: "ds1" });
+    mocks.readResults.mockResolvedValue([
+      item("naturais", { phone: "(41) 99999-0001", categoryName: "Loja de produtos naturais", title: "Essenza Indústria" }),
+    ]);
+    const naoGostei = { categoria: "Loja de produtos naturais", nota: "nao_gostei", referencia: false, error: null };
+    const deReferencia = { categoria: "Loja de produtos naturais", nota: null, referencia: true, error: null };
+    const { db, inseridos } = banco([], [], [naoGostei, naoGostei, deReferencia]);
+    await synchronizeSearch(db as never, {} as never, campanha);
+    expect(inseridos.map((i) => i.status)).toEqual(["new"]);
   });
 });
 

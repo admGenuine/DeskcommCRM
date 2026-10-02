@@ -19,6 +19,8 @@ import {
 } from "./schema";
 import { avaliarCandidato, motivoDeRecusaDoLegado } from "./aceite";
 import { alcanceDaBusca, mesmaBusca, motivoDeFaltarem } from "./busca-repetida";
+import { recusaAprendida } from "./aprendizado";
+import { carregarPerfilAprendido } from "./perfil-aprendido";
 import {
   ProspectingError,
   providerRequest,
@@ -286,6 +288,9 @@ export async function synchronizeSearch(db: pg.PoolClient, admin: SupabaseClient
     tetoUsd: c.search.budget_usd,
     interrompida,
   });
+  // O gosto do dono (avaliações e campanhas de referência): categoria que ele
+  // recusou repetidas vezes sai na entrada, com o motivo (`aprendizado.ts`).
+  const perfil = await carregarPerfilAprendido(db, c.organization_id);
   let inserted = 0;
   await db.query("begin");
   try {
@@ -295,7 +300,7 @@ export async function synchronizeSearch(db: pg.PoolClient, admin: SupabaseClient
         ? veredito.motivo
         : p.phone && phoneLookupVariants(p.phone).some((v) => noCrm.has(v))
           ? "Já está no CRM."
-          : null;
+          : recusaAprendida(perfil, p.category);
       const result = await db.query(
         "insert into prospecting_candidates(organization_id,campaign_id,place_id,phone,data,status,error) values($1,$2,$3,$4,$5,$6,$7) on conflict do nothing",
         [

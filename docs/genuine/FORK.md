@@ -33,6 +33,16 @@ Cada arquivo do núcleo que o fork altera fica listado aqui, com o motivo, porqu
 
 Ao trazer uma release nova do original, essas linhas podem dar conflito. A resolução é sempre manter o lado do fork (`admgenuine` e `producao`).
 
+### Migrations do fork
+
+As migrations do fork começam em **9001** (`<timestamp>_9001_<slug>.sql`), longe da numeração do original, para nunca colidir. Seguem a mesma tripla do projeto: arquivo em `supabase/migrations/`, bloco idempotente no **fim** do `supabase/baseline.sql` (rotulado `(migration 9001, fork da Genuine)`) e linha no `MANIFEST.md`. Só aditivas.
+
+| Migration | O que faz |
+|---|---|
+| `9001_prospeccao_campanha_de_referencia` | `prospecting_campaigns.referencia_em` e `referencia_motivo`: a campanha marcada como referência do perfil ideal |
+
+Ao trazer uma release nova do original, o `baseline.sql` e o `MANIFEST.md` podem dar conflito no fim do arquivo: manter os dois lados, com os blocos do fork por último.
+
 ## Como a VPS escolhe a versão
 
 O `update.sh` e o agente do botão "Atualizar agora" perguntam à API do GitHub qual é a **release mais recente** do repositório de origem do git da VPS (`ultima_release_estavel`, em `_common.sh`). Depois fazem checkout dessa tag e puxam as imagens `ghcr.io/admgenuine/<imagem>:<versão>`.

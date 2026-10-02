@@ -45418,3 +45418,19 @@ comment on column public.ai_agent_versions.inbound_debounce_ms is
 alter table public.ai_agent_versions
   add constraint ai_agent_versions_inbound_debounce_ms_check
   check (inbound_debounce_ms is null or (inbound_debounce_ms >= 0 and inbound_debounce_ms <= 60000));
+
+-- ---- campanha de referência do perfil ideal (migration 9001, fork da Genuine) ----
+-- 9001: migration do fork `admgenuine/DeskcommCRM` (numeração a partir de 9001
+-- para não colidir com o projeto original). O dono marca uma campanha como
+-- referência do perfil ideal; as empresas dela que passaram pela régua de perfil
+-- contam como "gostei" no gosto aprendido (`lib/prospecting/aprendizado.ts`).
+-- NULL = não é referência. Aditiva e idempotente; sem função nova (nada a
+-- revogar de anon); RLS e grants da tabela inalterados.
+alter table public.prospecting_campaigns
+  add column if not exists referencia_em timestamptz,
+  add column if not exists referencia_motivo text;
+
+comment on column public.prospecting_campaigns.referencia_em is
+  'Quando a campanha foi marcada como referência do perfil ideal. NULL = não é referência.';
+comment on column public.prospecting_campaigns.referencia_motivo is
+  'Por que a campanha é referência do perfil ideal, escrito por quem marcou (opcional).';
