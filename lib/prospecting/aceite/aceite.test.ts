@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Prospect } from "../schema";
 import { avaliarCandidato } from "./index";
 import { ufDaBusca, ufDoLugar } from "./regiao";
-import { categoriaForaDoPerfil } from "./segmento";
+import { segmentoForaDoPerfil } from "./segmento";
 
 const lugar = (extra: Partial<Prospect> = {}): Prospect => ({
   key: "p1",
@@ -27,10 +27,13 @@ const lugar = (extra: Partial<Prospect> = {}): Prospect => ({
 });
 
 describe("segmento: varejo e serviço de alimentação saem, fábrica fica", () => {
+  const fora = (nome: string, principal: string | null, outras: string[] = []) =>
+    segmentoForaDoPerfil({ nome, principal, outras });
+
   it.each(["Padaria", "Restaurante japonês", "Bar e restaurante", "Supermercado", "Lanchonete", "Açougue", "Café"])(
-    "recusa %s",
+    "recusa a categoria %s",
     (categoria) => {
-      expect(categoriaForaDoPerfil(categoria)).toBe(categoria);
+      expect(fora("Empresa Exemplo", categoria)).toBe(`Categoria fora do perfil: ${categoria}.`);
     },
   );
 
@@ -42,16 +45,37 @@ describe("segmento: varejo e serviço de alimentação saem, fábrica fica", () 
     "Barbearia",
     "Cervejaria",
     "Torrefação de café",
-  ])("aceita %s", (categoria) => {
-    expect(categoriaForaDoPerfil(categoria)).toBeNull();
+  ])("aceita a categoria %s", (categoria) => {
+    expect(fora("Empresa Exemplo", categoria)).toBeNull();
   });
 
   it("padaria que também é fábrica fica", () => {
-    expect(categoriaForaDoPerfil("Padaria", ["Fábrica de pães"])).toBeNull();
+    expect(fora("Empresa Exemplo", "Padaria", ["Fábrica de pães"])).toBeNull();
   });
 
   it("sem categoria não recusa: quem decide é o CNAE na Fase 2", () => {
-    expect(categoriaForaDoPerfil(null, [])).toBeNull();
+    expect(fora("Empresa Exemplo", null)).toBeNull();
+  });
+
+  // Casos reais da busca "indústria de alimentos · Curitiba, PR" (01/10/2026).
+  it.each([
+    ["Mercado Paineiras", "Fornecedor de produtos alimentícios"],
+    ["Frutaria Silvana", "Fornecedor de produtos alimentícios"],
+  ])("recusa %s pelo nome de varejo, mesmo com categoria de fornecedor", (nome, categoria) => {
+    expect(fora(nome, categoria)).toBe(`Nome indica varejo ou alimentação ao público: ${nome}.`);
+  });
+
+  it.each([
+    ["Essenza Comércio e Indústria Farmacêutica", "Loja de produtos naturais"],
+    ["Edelweiss Fabr de Prod Alimentícios", "Fornecedor de produtos alimentícios"],
+    ["Pastificio Granodoro", "Fornecedor de produtos alimentícios"],
+    ["Liguria Alimentos", "Fabricante de alimentos"],
+    ["KIAN - Krakauer Indústria de Alimentos e Nutrição.", "Escritório da empresa"],
+    ["Velomed - Distribuidora de Alimentos Saudáveis", "Fornecedor de produtos alimentícios"],
+    ["Linguiça para Churrasco", "Fornecedor de produtos alimentícios"],
+    ["Mercado de Alimentos Exemplo Ind. e Com.", "Mercado"],
+  ])("aceita %s", (nome, categoria) => {
+    expect(fora(nome, categoria)).toBeNull();
   });
 });
 
@@ -109,7 +133,7 @@ describe("veredito de entrada", () => {
   });
 
   it("recusa a padaria com o motivo", () => {
-    expect(avaliarCandidato(lugar({ category: "Padaria" }), busca)).toEqual({
+    expect(avaliarCandidato(lugar({ name: "Padaria Central", category: "Padaria" }), busca)).toEqual({
       aprovado: false,
       motivo: "Categoria fora do perfil: Padaria.",
     });

@@ -13,7 +13,7 @@
  */
 import type { Prospect, SearchInput } from "../schema";
 import { ufDaBusca } from "./regiao";
-import { categoriaForaDoPerfil } from "./segmento";
+import { segmentoForaDoPerfil } from "./segmento";
 
 export type Veredito = { aprovado: true } | { aprovado: false; motivo: string };
 
@@ -21,8 +21,8 @@ export function avaliarCandidato(p: Prospect, busca: Pick<SearchInput, "location
   if (!p.phone) return { aprovado: false, motivo: p.phone_issue ?? "Sem telefone brasileiro válido." };
   if (p.country_code && p.country_code.toUpperCase() !== "BR")
     return { aprovado: false, motivo: "Empresa fora do Brasil." };
-  const categoria = categoriaForaDoPerfil(p.category, p.categories ?? []);
-  if (categoria) return { aprovado: false, motivo: `Categoria fora do perfil: ${categoria}.` };
+  const segmento = segmentoForaDoPerfil({ nome: p.name, principal: p.category, outras: p.categories ?? [] });
+  if (segmento) return { aprovado: false, motivo: segmento };
   const pedida = ufDaBusca(busca.location);
   if (pedida && p.state_code && p.state_code !== pedida)
     return { aprovado: false, motivo: `Fora do estado pedido (${p.state_code}).` };
