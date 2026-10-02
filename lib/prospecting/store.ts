@@ -18,6 +18,9 @@ import {
   type Prospect,
 } from "./schema";
 import { avaliarCandidato, motivoDeRecusaDoLegado } from "./aceite";
+import { alcanceDaBusca, mesmaBusca, motivoDeFaltarem } from "./busca-repetida";
+import { recusaAprendida } from "./aprendizado";
+import { carregarPerfilAprendido } from "./perfil-aprendido";
 import {
   ProspectingError,
   providerRequest,
@@ -26,11 +29,18 @@ import {
   startSearch,
 } from "./provider";
 
+/**
+ * A busca como ficou gravada: o que o administrador pediu mais `alcance`, que é
+ * quantos lugares foram pedidos ao provedor (`busca-repetida.ts`). Campanha de
+ * antes desta versão não tem `alcance`, e vale o limite.
+ */
+export type BuscaGravada = SearchInput & { alcance?: number };
+
 export interface Campaign {
   id: string;
   organization_id: string;
   name: string;
-  search: SearchInput;
+  search: BuscaGravada;
   config: CampaignConfig | null;
   status: string;
   search_status: string;
@@ -128,13 +138,34 @@ export async function createSearch(
     );
     if (prior.rows[0]) return prior.rows[0];
     const key = await credential(db, admin, org);
+    // Quantas empresas desta mesma busca (termo e local) a organização já tem:
+    // a busca nova passa por elas e vai mais fundo no Maps.
+    const mesmas = (
+      await db.query<{ id: string; search: unknown }>(
+        "select id,search from prospecting_campaigns where organization_id=$1",
+        [org],
+      )
+    ).rows
+      .filter((c) => mesmaBusca((c.search ?? {}) as Record<string, unknown>, search))
+      .map((c) => c.id);
+    const conhecidos = mesmas.length
+      ? Number(
+          (
+            await db.query<{ n: number }>(
+              "select count(*)::int as n from prospecting_candidates where organization_id=$1 and campaign_id=any($2::uuid[])",
+              [org, mesmas],
+            )
+          ).rows[0]?.n ?? 0,
+        )
+      : 0;
+    const gravada: BuscaGravada = { ...search, alcance: alcanceDaBusca(search.limit, conhecidos) };
     const { rows } = await db.query<Campaign>(
       "insert into prospecting_campaigns(organization_id,request_id,name,search) values($1,$2,$3,$4) returning *",
-      [org, requestId, search.name, search],
+      [org, requestId, search.name, gravada],
     );
     const campaign = rows[0]!;
     try {
-      const run = await startSearch(key, search);
+      const run = await startSearch(key, search, gravada.alcance);
       await db.query(
         "update prospecting_campaigns set run_id=$3,dataset_id=$4,search_status='running',updated_at=now() where organization_id=$1 and id=$2",
         [org, campaign.id, run.id, run.defaultDatasetId ?? null],
@@ -170,6 +201,8 @@ export function avisoDaBusca(r: {
   interrompida: string | null;
   inserted: number;
   jaEmOutraCampanha: number;
+  /** Por que vieram menos empresas novas que o limite (`motivoDeFaltarem`). */
+  faltaram?: string | null;
 }): string | null {
   const partes: string[] = [];
   if (r.interrompida)
@@ -180,6 +213,7 @@ export function avisoDaBusca(r: {
     partes.push("1 empresa já estava em outra campanha e não foi repetida.");
   else if (r.jaEmOutraCampanha > 1)
     partes.push(`${r.jaEmOutraCampanha} empresas já estavam em outra campanha e não foram repetidas.`);
+  if (r.faltaram) partes.push(r.faltaram);
   return partes.length ? partes.join(" ") : null;
 }
 
@@ -202,7 +236,8 @@ export async function synchronizeSearch(db: pg.PoolClient, admin: SupabaseClient
   if (!dataset) throw new ProspectingError("Busca concluída sem resultado disponível.");
   // Busca que estourou o tempo JÁ FOI PAGA: o que ela achou até parar fica no
   // dataset. Antes, TIMED-OUT descartava tudo e a busca precisava ser refeita.
-  const items = await readResults(key, dataset, c.search.limit);
+  const pedidos = c.search.alcance ?? c.search.limit;
+  const items = await readResults(key, dataset, pedidos);
   if (interrompida && !items.length) {
     await falhar(`A busca terminou com estado ${run.status}.`);
     return;
@@ -240,16 +275,32 @@ export async function synchronizeSearch(db: pg.PoolClient, admin: SupabaseClient
     lugaresVistos.has(p.key) || (!!p.phone && telefonesVistos.has(p.phone));
   const novos = prospects.filter((p) => !emOutraCampanha(p));
   const jaEmOutraCampanha = prospects.length - novos.length;
+  // A busca repetida pede mais fundo que o limite; ficam as primeiras novas, na
+  // ordem do Maps, até o limite pedido.
+  const aproveitados = novos.slice(0, c.search.limit);
+  const excedentes = novos.length - aproveitados.length;
+  const faltaram = motivoDeFaltarem({
+    limite: c.search.limit,
+    novos: novos.length,
+    pedidos,
+    devolvidos: items.length,
+    custoUsd: run.usageTotalUsd ?? null,
+    tetoUsd: c.search.budget_usd,
+    interrompida,
+  });
+  // O gosto do dono (avaliações e campanhas de referência): categoria que ele
+  // recusou repetidas vezes sai na entrada, com o motivo (`aprendizado.ts`).
+  const perfil = await carregarPerfilAprendido(db, c.organization_id);
   let inserted = 0;
   await db.query("begin");
   try {
-    for (const p of novos) {
+    for (const p of aproveitados) {
       const veredito = avaliarCandidato(p, c.search);
       const motivo = !veredito.aprovado
         ? veredito.motivo
         : p.phone && phoneLookupVariants(p.phone).some((v) => noCrm.has(v))
           ? "Já está no CRM."
-          : null;
+          : recusaAprendida(perfil, p.category);
       const result = await db.query(
         "insert into prospecting_candidates(organization_id,campaign_id,place_id,phone,data,status,error) values($1,$2,$3,$4,$5,$6,$7) on conflict do nothing",
         [
@@ -272,8 +323,13 @@ export async function synchronizeSearch(db: pg.PoolClient, admin: SupabaseClient
         dataset,
         run.usageTotalUsd ?? null,
         inserted,
-        items.length - inserted - jaEmOutraCampanha,
-        avisoDaBusca({ interrompida: interrompida ? run.status : null, inserted, jaEmOutraCampanha }),
+        items.length - inserted - jaEmOutraCampanha - excedentes,
+        avisoDaBusca({
+          interrompida: interrompida ? run.status : null,
+          inserted,
+          jaEmOutraCampanha,
+          faltaram,
+        }),
       ],
     );
     await db.query("commit");

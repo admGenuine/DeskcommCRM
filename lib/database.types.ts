@@ -8667,6 +8667,8 @@ export type Database = {
           name: string
           next_send_at: string
           organization_id: string
+          referencia_em: string | null
+          referencia_motivo: string | null
           request_id: string
           result_count: number
           run_id: string | null
@@ -8688,6 +8690,8 @@ export type Database = {
           name: string
           next_send_at?: string
           organization_id: string
+          referencia_em?: string | null
+          referencia_motivo?: string | null
           request_id: string
           result_count?: number
           run_id?: string | null
@@ -8709,6 +8713,8 @@ export type Database = {
           name?: string
           next_send_at?: string
           organization_id?: string
+          referencia_em?: string | null
+          referencia_motivo?: string | null
           request_id?: string
           result_count?: number
           run_id?: string | null

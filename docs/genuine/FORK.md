@@ -30,8 +30,19 @@ Cada arquivo do núcleo que o fork altera fica listado aqui, com o motivo, porqu
 | `lib/channels/adapters/waha.ts` | Implementa `numeroExiste` | Idem |
 | `lib/waha/resolve-contact-whatsapp-id.ts` | Função `numeroExisteNoWhatsapp` | Distingue "não existe" de "não deu para saber" |
 | `lib/i18n/dicionario.ts` | Traduções das telas da prospecção | Toda chave nova de `t()` precisa de espanhol |
+| `tests/shell/colisao-de-migration.test.sh` | `unset GITHUB_REF` no começo | O teste herdava o número do PR do CI, e os PRs do fork (números pequenos) colidiam com os PRs inventados do teste: o PR #7 reprovava 9 casos. Defeito do original, candidato a contribuição |
 
 Ao trazer uma release nova do original, essas linhas podem dar conflito. A resolução é sempre manter o lado do fork (`admgenuine` e `producao`).
+
+### Migrations do fork
+
+As migrations do fork começam em **9001** (`<timestamp>_9001_<slug>.sql`), longe da numeração do original, para nunca colidir. Seguem a mesma tripla do projeto: arquivo em `supabase/migrations/`, bloco idempotente no **fim** do `supabase/baseline.sql` (rotulado `(migration 9001, fork da Genuine)`) e linha no `MANIFEST.md`. Só aditivas.
+
+| Migration | O que faz |
+|---|---|
+| `9001_prospeccao_campanha_de_referencia` | `prospecting_campaigns.referencia_em` e `referencia_motivo`: a campanha marcada como referência do perfil ideal |
+
+Ao trazer uma release nova do original, o `baseline.sql` e o `MANIFEST.md` podem dar conflito no fim do arquivo: manter os dois lados, com os blocos do fork por último.
 
 ## Como a VPS escolhe a versão
 

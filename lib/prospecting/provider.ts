@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ALCANCE_MAXIMO } from "./busca-repetida";
 import type { SearchInput } from "./schema";
 
 /**
@@ -68,16 +69,21 @@ export async function providerRequest(key: string, path: string, body?: unknown)
     );
   return response.json();
 }
-export async function startSearch(key: string, input: SearchInput) {
+/**
+ * `alcance` é quantos lugares pedir ao Maps. Na primeira busca de um termo e
+ * local ele é o próprio limite; numa busca repetida ele vai mais fundo, para
+ * passar pelas empresas que já estão em outra campanha (`busca-repetida.ts`).
+ */
+export async function startSearch(key: string, input: SearchInput, alcance = input.limit) {
   // No retries on POST: an ambiguous timeout must never start another paid run.
   return runSchema.parse(
     await providerRequest(
       key,
-      `acts/${ACTOR}/runs?maxItems=${input.limit}&maxTotalChargeUsd=${input.budget_usd}&timeout=300`,
+      `acts/${ACTOR}/runs?maxItems=${alcance}&maxTotalChargeUsd=${input.budget_usd}&timeout=300`,
       {
         searchStringsArray: [input.niche],
         locationQuery: input.location,
-        maxCrawledPlacesPerSearch: input.limit,
+        maxCrawledPlacesPerSearch: alcance,
         language: "pt-BR",
         countryCode: "br",
         skipClosedPlaces: true,
@@ -95,7 +101,7 @@ export async function readSearch(key: string, id: string) {
 export async function readResults(key: string, dataset: string, limit: number) {
   return z
     .array(z.record(z.string(), z.unknown()))
-    .max(100)
+    .max(ALCANCE_MAXIMO)
     .parse(
       await providerRequest(
         key,

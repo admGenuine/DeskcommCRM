@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { ufDoLugar } from "./aceite/regiao";
 import { avaliarTelefoneBR } from "./aceite/telefone";
+import { NOTAS, type Avaliacao } from "./aprendizado";
 
 export const campaignConfigSchema = z
   .object({
@@ -39,6 +40,24 @@ export const prospectingInputSchema = z.discriminatedUnion("action", [
     .strict(),
   z.object({ action: z.literal("pause"), id: z.string().uuid() }).strict(),
   z.object({ action: z.literal("resume"), id: z.string().uuid() }).strict(),
+  // O dono avalia uma empresa (`aprendizado.ts`).
+  z
+    .object({
+      action: z.literal("rate"),
+      id: z.string().uuid(),
+      nota: z.enum(NOTAS),
+      motivo: z.string().trim().max(300).nullish(),
+    })
+    .strict(),
+  // O dono marca (ou desmarca) a campanha como referência do perfil ideal.
+  z
+    .object({
+      action: z.literal("reference"),
+      id: z.string().uuid(),
+      ativa: z.boolean(),
+      motivo: z.string().trim().max(300).nullish(),
+    })
+    .strict(),
 ]);
 export type CampaignConfig = z.infer<typeof campaignConfigSchema>;
 export type SearchInput = z.infer<typeof searchSchema>;
@@ -66,6 +85,8 @@ export interface Prospect {
   socials: string[];
   /** Veredito da régua de aceite gravado na entrada; ausente em candidato de antes da régua. */
   aceite?: { aprovado: boolean; motivo?: string };
+  /** A avaliação do dono ("gostei" / "não gostei"), ausente até ele avaliar. */
+  avaliacao?: Avaliacao;
 }
 
 /** Telefone pela régua de `aceite/telefone.ts`; número estrangeiro nunca vira brasileiro. */

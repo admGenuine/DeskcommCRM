@@ -12,12 +12,16 @@ import { Badge } from "@/components/ui/badge";
 import { apiClient } from "@/lib/api/client";
 import { useT } from "@/hooks/i18n/useT";
 import { safePublicLink, type CampaignConfig, type Prospect } from "@/lib/prospecting/schema";
+import { alcanceDaBusca, mesmaBusca } from "@/lib/prospecting/busca-repetida";
 import { ProspectingAgentBuilder, type CreatedProspectingAgent } from "./_create-agent";
+import { AprendizadoCard, AvaliacaoDaEmpresa, ReferenciaDaCampanha } from "./_avaliacao";
+import type { PerfilAprendido } from "@/lib/prospecting/aprendizado";
 import type { ProspectingAgentSetupInput } from "@/lib/prospecting/agent-setup-schema";
 
 type Campaign = {
   id: string;
   name: string;
+  search: { niche?: string; location?: string } | null;
   status: string;
   search_status: string;
   error: string | null;
@@ -26,6 +30,8 @@ type Campaign = {
   skipped_count: number;
   cost_usd: string | null;
   next_send_at: string;
+  referencia_em: string | null;
+  referencia_motivo: string | null;
 };
 type Candidate = {
   id: string;
@@ -49,6 +55,7 @@ type State = {
     status: string;
   }[];
   stages: { id: string; name: string; pipeline_id: string; pipeline_name: string }[];
+  aprendizado?: PerfilAprendido;
 };
 const labels: Record<string, string> = {
   draft: "Preparar campanha",
@@ -153,6 +160,16 @@ export function ProspectingClient() {
     );
   }
   const candidates = data?.candidates.filter((c) => c.campaign_id === campaign?.id) ?? [];
+  // Empresas que a busca digitada já trouxe em outras campanhas: a busca nova
+  // passa por elas e vai mais fundo no Maps (`lib/prospecting/busca-repetida.ts`).
+  const campanhasDaMesmaBusca = new Set(
+    (data?.campaigns ?? [])
+      .filter((c) => mesmaBusca(c.search ?? {}, { niche, location }))
+      .map((c) => c.id),
+  );
+  const conhecidosDaBusca = campanhasDaMesmaBusca.size
+    ? (data?.candidates ?? []).filter((c) => campanhasDaMesmaBusca.has(c.campaign_id)).length
+    : 0;
   async function perform(body: unknown, message: string) {
     setBusy(true);
     setError(null);
@@ -345,6 +362,15 @@ export function ProspectingClient() {
                 />
                 {t("Enriquecer com e-mails comerciais e redes encontradas no site")}
               </label>
+              {conhecidosDaBusca > 0 && (
+                <p role="status" className="rounded-md border bg-muted/30 p-3 text-xs">
+                  {conhecidosDaBusca}{" "}
+                  {t("empresas desta busca já estão nas suas campanhas e não vão se repetir.")}{" "}
+                  {t("Para trazer novas, a busca vai olhar até")}{" "}
+                  {alcanceDaBusca(limit || 0, conhecidosDaBusca)}{" "}
+                  {t("lugares no Maps, dentro do teto de gasto.")}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
                 {t(
                   "A pesquisa usa seu saldo da Apify. A quantidade encontrada pode ser menor que o limite. Nenhuma abordagem começa nesta etapa.",
@@ -368,7 +394,14 @@ export function ProspectingClient() {
                   }}
                   className={`w-full rounded-lg border p-3 text-left ${campaign?.id === c.id ? "border-primary bg-primary/5" : "bg-card"}`}
                 >
-                  <span className="block text-sm font-medium">{c.name}</span>
+                  <span className="block text-sm font-medium">
+                    {c.name}
+                    {c.referencia_em && (
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                        {t("Referência")}
+                      </span>
+                    )}
+                  </span>
                   <span className="mt-1 block text-xs text-muted-foreground">
                     {t(labels[c.status] ?? c.status)} · {c.result_count} {t("empresas")}
                   </span>
@@ -376,6 +409,7 @@ export function ProspectingClient() {
               ))}
             </div>
           </section>
+          <AprendizadoCard perfil={data?.aprendizado} />
         </aside>
         <div className="min-w-0 space-y-5">
           {!campaign && (
@@ -447,6 +481,21 @@ export function ProspectingClient() {
                       ))}
                     </ul>
                   </div>
+                )}
+                {campaign.search_status === "succeeded" && (
+                  <ReferenciaDaCampanha
+                    referencia={!!campaign.referencia_em}
+                    motivo={campaign.referencia_motivo}
+                    busy={busy}
+                    onMarcar={(ativa, motivo) =>
+                      perform(
+                        { action: "reference", id: campaign.id, ativa, motivo: motivo || null },
+                        ativa
+                          ? t("Campanha marcada como referência do perfil ideal.")
+                          : t("A campanha deixou de ser referência."),
+                      )
+                    }
+                  />
                 )}
                 {campaign.skipped_count > 0 && (
                   <p className="mt-3 text-xs text-muted-foreground">
@@ -820,6 +869,7 @@ export function ProspectingClient() {
                           <th className="p-4">{t("Informações")}</th>
                           <th className="p-4">{t("Progresso")}</th>
                           <th className="p-4">{t("Conversa")}</th>
+                          <th className="p-4">{t("Sua avaliação")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -873,6 +923,18 @@ export function ProspectingClient() {
                                   {t("Abrir no Inbox")}
                                 </Link>
                               )}
+                            </td>
+                            <td className="p-4 align-top">
+                              <AvaliacaoDaEmpresa
+                                avaliacao={c.data.avaliacao}
+                                busy={busy}
+                                onAvaliar={(nota, motivo) =>
+                                  perform(
+                                    { action: "rate", id: c.id, nota, motivo: motivo || null },
+                                    t("Avaliação salva. As próximas buscas levam em conta o seu gosto."),
+                                  )
+                                }
+                              />
                             </td>
                           </tr>
                         ))}

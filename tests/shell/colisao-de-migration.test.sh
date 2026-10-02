@@ -124,6 +124,11 @@ GH
 chmod +x "$TMP/bin/gh"
 export PATH="$TMP/bin:$PATH"
 unset FAKE_GH_PRS FAKE_GH_PRS_FECHADOS FAKE_GH_PAI FAKE_GH_SEM_NUMERO
+# No CI o gate tira o número do PR de quem roda do GITHUB_REF (refs/pull/N/merge). Herdado
+# aqui, ele faria o gate tratar como "próprio" o PR do cenário que tiver o mesmo número, e
+# o caso reprova sem defeito nenhum. Medido no fork admgenuine/DeskcommCRM, onde os PRs têm
+# número pequeno: com GITHUB_REF=refs/pull/7/merge, 9 de 106 casos vermelhos; com o #8, 1.
+unset GITHUB_REF
 
 # ── um "repositório principal" mínimo, com duas migrations já aplicadas ──────────────
 principal="$TMP/principal"; mkdir -p "$principal/supabase/migrations"

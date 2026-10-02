@@ -9,6 +9,8 @@ import { capabilitiesOf } from "@/lib/channels/capabilities";
 import type { ChannelProvider } from "@/lib/channels/types";
 import { ProspectingError } from "@/lib/prospecting/provider";
 import { prospectingInputSchema } from "@/lib/prospecting/schema";
+import { avaliarEmpresa, marcarReferencia } from "@/lib/prospecting/avaliacao";
+import { carregarPerfilAprendido } from "@/lib/prospecting/perfil-aprendido";
 import {
   activateCampaign,
   configureCredential,
@@ -38,10 +40,10 @@ export async function GET() {
   try {
     const db = getRequestPool();
     const org = auth.org.orgId;
-    const [settings, campaigns, candidates, agents, channels, stages] = await Promise.all([
+    const [settings, campaigns, candidates, agents, channels, stages, aprendizado] = await Promise.all([
       db.query("select organization_id from prospecting_settings where organization_id=$1", [org]),
       db.query(
-        "select id,name,search,config,status,search_status,run_id,cost_usd,result_count,skipped_count,error,next_send_at,created_at from prospecting_campaigns where organization_id=$1 order by created_at desc limit 50",
+        "select id,name,search,config,status,search_status,run_id,cost_usd,result_count,skipped_count,error,next_send_at,created_at,referencia_em,referencia_motivo from prospecting_campaigns where organization_id=$1 order by created_at desc limit 50",
         [org],
       ),
       db.query(
@@ -60,6 +62,7 @@ export async function GET() {
         "select s.id,s.name,s.pipeline_id,p.name as pipeline_name from crm_stages s join crm_pipelines p on p.id=s.pipeline_id and p.organization_id=s.organization_id where s.organization_id=$1 and not s.is_archived and not s.is_won and not s.is_lost order by p.name,s.position",
         [org],
       ),
+      carregarPerfilAprendido(db, org),
     ]);
     return ok(
       {
@@ -75,6 +78,7 @@ export async function GET() {
           }
         }),
         stages: stages.rows,
+        aprendizado,
       },
       { requestId, headers },
     );
@@ -109,6 +113,9 @@ export async function POST(req: Request) {
       result = await createSearch(pool, admin, org, body.request_id, body.search);
     else if (body.action === "start")
       result = await activateCampaign(pool, admin, org, body.id, body.config);
+    else if (body.action === "rate")
+      result = await avaliarEmpresa(pool, org, auth.user.id, body);
+    else if (body.action === "reference") result = await marcarReferencia(pool, org, body);
     else if (body.action === "pause") {
       // Pause does not wait for the worker lock; the delivery guard sees it before sending.
       const changed = await pool.query(
@@ -151,7 +158,11 @@ export async function POST(req: Request) {
       actorUserId: auth.user.id,
       resourceType: "prospecting",
       resourceId,
-      metadata: { operation: body.action },
+      metadata: {
+        operation: body.action,
+        ...(body.action === "rate" ? { nota: body.nota } : {}),
+        ...(body.action === "reference" ? { ativa: body.ativa } : {}),
+      },
       requestId,
     });
     return ok(result, { requestId, headers });
