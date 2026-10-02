@@ -30,6 +30,7 @@ Cada arquivo do núcleo que o fork altera fica listado aqui, com o motivo, porqu
 | `lib/channels/adapters/waha.ts` | Implementa `numeroExiste` | Idem |
 | `lib/waha/resolve-contact-whatsapp-id.ts` | Função `numeroExisteNoWhatsapp` | Distingue "não existe" de "não deu para saber" |
 | `lib/i18n/dicionario.ts` | Traduções das telas da prospecção | Toda chave nova de `t()` precisa de espanhol |
+| `tests/shell/colisao-de-migration.test.sh` | `unset GITHUB_REF` no começo | O teste herdava o número do PR do CI, e os PRs do fork (números pequenos) colidiam com os PRs inventados do teste: o PR #7 reprovava 9 casos. Defeito do original, candidato a contribuição |
 
 Ao trazer uma release nova do original, essas linhas podem dar conflito. A resolução é sempre manter o lado do fork (`admgenuine` e `producao`).
 
