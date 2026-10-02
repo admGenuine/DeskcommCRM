@@ -84,6 +84,18 @@ describe("campanha de referência", () => {
 });
 
 describe("o que a prospecção aprendeu", () => {
+  it("uma empresa avaliada fica no singular, e sem referência a contagem dela some", () => {
+    render(
+      <AprendizadoCard
+        perfil={perfilAprendido([
+          { categoria: "Fornecedor de bebidas", nota: "nao_gostei", origem: "avaliacao" },
+        ])}
+      />,
+    );
+    expect(screen.getByText(/^1 empresa avaliada por você$/)).toBeTruthy();
+    expect(screen.queryByText(/campanha/)).toBeNull();
+  });
+
   it("não aparece antes da primeira avaliação", () => {
     const { container } = render(<AprendizadoCard perfil={perfilAprendido([])} />);
     expect(container.innerHTML).toBe("");
@@ -105,6 +117,9 @@ describe("o que a prospecção aprendeu", () => {
       />,
     );
     expect(screen.getByText("Fabricante de alimentos (1)")).toBeTruthy();
+    expect(
+      screen.getByText(/2 empresas avaliadas por você · 1 empresa de campanha de referência/),
+    ).toBeTruthy();
     expect(
       screen.getByText(/Loja de produtos naturais \(2\) · as próximas ficam de fora/),
     ).toBeTruthy();
