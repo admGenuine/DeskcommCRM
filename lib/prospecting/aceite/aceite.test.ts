@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Prospect } from "../schema";
-import { avaliarCandidato } from "./index";
+import { avaliarCandidato, motivoDeRecusaDoLegado } from "./index";
 import { ufDaBusca, ufDoLugar } from "./regiao";
 import { segmentoForaDoPerfil } from "./segmento";
 
@@ -152,5 +152,37 @@ describe("veredito de entrada", () => {
       aprovado: false,
       motivo: "Empresa fora do Brasil.",
     });
+  });
+});
+
+describe("candidato de antes da régua passa por ela ao iniciar a campanha", () => {
+  const busca = { location: "Curitiba, PR" };
+  const legado = (extra: Partial<Prospect>) => {
+    const p = lugar(extra);
+    delete p.aceite;
+    return p;
+  };
+
+  it("recusa o varejo que a versão antiga deixou entrar", () => {
+    expect(
+      motivoDeRecusaDoLegado(
+        legado({ name: "Mercado Paineiras", category: "Fornecedor de produtos alimentícios" }),
+        busca,
+      ),
+    ).toBe("Nome indica varejo ou alimentação ao público: Mercado Paineiras.");
+  });
+
+  it("recusa o 0800 que a régua antiga gravou como +5508…", () => {
+    expect(motivoDeRecusaDoLegado(legado({ phone: "+5508001234567" }), busca)).toBe("Número de atendimento (0800, 0300, 4003 ou similar).");
+  });
+
+  it("deixa seguir a fábrica de antes da régua", () => {
+    expect(motivoDeRecusaDoLegado(legado({}), busca)).toBeNull();
+  });
+
+  it("não reavalia quem já passou pela régua na entrada", () => {
+    expect(
+      motivoDeRecusaDoLegado({ ...lugar({ name: "Mercado X", category: "Mercado" }), aceite: { aprovado: true } }, busca),
+    ).toBeNull();
   });
 });

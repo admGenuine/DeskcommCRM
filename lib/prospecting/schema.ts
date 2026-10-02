@@ -64,6 +64,8 @@ export interface Prospect {
   reviews: number | null;
   emails: string[];
   socials: string[];
+  /** Veredito da régua de aceite gravado na entrada; ausente em candidato de antes da régua. */
+  aceite?: { aprovado: boolean; motivo?: string };
 }
 
 /** Telefone pela régua de `aceite/telefone.ts`; número estrangeiro nunca vira brasileiro. */

@@ -37,13 +37,15 @@ const item = (placeId: string, extra: Record<string, unknown>) => ({
   ...extra,
 });
 
-function banco(noCrm: string[] = []) {
+function banco(noCrm: string[] = [], emOutraCampanha: { place_id: string; phone: string | null }[] = []) {
   const inseridos: { status: string; error: string | null; phone: string | null }[] = [];
   const campanhaAtualizada: unknown[][] = [];
   const db = {
     query: vi.fn(async (sql: string, params: unknown[] = []) => {
       if (sql.startsWith("select credential_encrypted"))
         return { rows: [{ credential_encrypted: Buffer.from("00", "hex") }] };
+      if (sql.startsWith("select place_id,phone from prospecting_candidates"))
+        return { rows: emOutraCampanha };
       if (sql.startsWith("select phone_number from contacts"))
         return {
           rows: (params[1] as string[]).filter((v) => noCrm.includes(v)).map((phone_number) => ({ phone_number })),
@@ -100,5 +102,24 @@ describe("entrada da busca: a régua de aceite e o motivo de cada recusa", () =>
     await synchronizeSearch(db as never, {} as never, campanha);
     expect(inseridos).toHaveLength(0);
     expect(campanhaAtualizada.at(-1)![0]).toContain("search_status='failed'");
+  });
+
+  it("empresa já em outra campanha não entra e vira aviso, não 'indisponível'", async () => {
+    mocks.readSearch.mockResolvedValue({ id: "run1", status: "SUCCEEDED", defaultDatasetId: "ds1" });
+    mocks.readResults.mockResolvedValue([
+      item("velho1", { phone: "(41) 99999-0001" }),
+      item("velho2", { phone: "(41) 99999-0002" }),
+      item("novo", { phone: "(41) 99999-0003" }),
+    ]);
+    const { db, inseridos, campanhaAtualizada } = banco([], [
+      { place_id: "velho1", phone: null },
+      { place_id: "outro", phone: "+5541999990002" },
+    ]);
+    await synchronizeSearch(db as never, {} as never, campanha);
+    expect(inseridos.map((i) => i.phone)).toEqual(["+5541999990003"]);
+    const final = campanhaAtualizada.at(-1)!;
+    // skipped_count (indisponível/repetido na própria busca) não leva os de outra campanha
+    expect(final.at(-2)).toBe(0);
+    expect(final.at(-1)).toBe("2 empresas já estavam em outra campanha e não foram repetidas.");
   });
 });
