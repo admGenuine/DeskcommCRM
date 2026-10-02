@@ -538,6 +538,11 @@ export const DICIONARIO: Traducoes = {
   "Aprovados": { es: "Aprobados" },
   "Recusados": { es: "Rechazados" },
   "Por que ficaram de fora": { es: "Por qué quedaron fuera" },
+  "empresas desta busca já estão nas suas campanhas e não vão se repetir.": {
+    es: "empresas de esta búsqueda ya están en sus campañas y no se repetirán.",
+  },
+  "Para trazer novas, a busca vai olhar até": { es: "Para traer nuevas, la búsqueda revisará hasta" },
+  "lugares no Maps, dentro do teto de gasto.": { es: "lugares en Maps, dentro del tope de gasto." },
   "resultados repetidos ou indisponíveis foram desconsiderados.": { es: "resultados repetidos o no disponibles se descartaron." },
   "Ritmo:": { es: "Ritmo:" },
   "abordagens em 24 horas, com pelo menos": { es: "contactos en 24 horas, con al menos" },

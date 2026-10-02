@@ -84,6 +84,26 @@ describe("native prospecting", () => {
       maximumLeadsEnrichmentRecords: 0,
     });
   });
+  it("a busca repetida pede mais fundo sem mexer no teto de gasto", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ data: { id: "run", status: "RUNNING" } })));
+    vi.stubGlobal("fetch", fetch);
+    await startSearch(
+      "test-secret",
+      searchSchema.parse({
+        name: "teste",
+        niche: "fábrica",
+        location: "PR",
+        limit: 10,
+        budget_usd: 2,
+      }),
+      45,
+    );
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toContain("maxItems=45&maxTotalChargeUsd=2&timeout=300");
+    expect(JSON.parse(init.body)).toMatchObject({ maxCrawledPlacesPerSearch: 45 });
+  });
   it("never repeats an uncertain paid request or exposes provider diagnostics", async () => {
     const fetch = vi.fn().mockRejectedValue(new Error("test-secret"));
     vi.stubGlobal("fetch", fetch);

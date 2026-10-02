@@ -170,6 +170,14 @@ Corrigir os 6 defeitos listados, com teste para cada caso, e mostrar na tela os 
 
 Separe a correção de telefone num commit isolado: quero considerar enviá-la como contribuição ao projeto original.
 
+### Pedidos de 02/10/2026, entre a Fase 1 e a Fase 2
+
+Decididos pelo dono: recorte inicial **PR e SC, só alimentos** (divisão 10 do CNAE, sem 1091-1/02, sem bebidas); vizinhas do mesmo estado e distribuidoras entram. Porte mínimo ainda em aberto.
+
+1. **Busca repetida traz empresas novas.** Refazer o mesmo termo e local não pode devolver as mesmas empresas. Como o provedor não aceita lista de exclusão, a busca nova pede mais fundo no Maps (limite + empresas já conhecidas daquela busca, até 300 lugares) e fica com as primeiras novas. O teto de gasto continua limitando o custo, e a campanha diz quando foi ele, ou o fim do Maps, que impediu de achar todas. Código em `lib/prospecting/busca-repetida.ts`.
+2. **Classificar empresas** (gostei / não gostei, com motivo), para o agente aprender o gosto do dono. Alimenta o score da Fase 4.
+3. **Classificar campanha como referência de perfil ideal** (opção C): as empresas aprovadas de uma campanha marcada viram exemplo do que se procura.
+
 ### Fase 2: mercado inteiro e busca por CNAE (etapas 1 e 2)
 
 Importação da base de CNPJ só para o recorte escolhido, rotina de atualização mensal e busca por CNAE, UF, município, porte e idade.

@@ -12,12 +12,14 @@ import { Badge } from "@/components/ui/badge";
 import { apiClient } from "@/lib/api/client";
 import { useT } from "@/hooks/i18n/useT";
 import { safePublicLink, type CampaignConfig, type Prospect } from "@/lib/prospecting/schema";
+import { alcanceDaBusca, mesmaBusca } from "@/lib/prospecting/busca-repetida";
 import { ProspectingAgentBuilder, type CreatedProspectingAgent } from "./_create-agent";
 import type { ProspectingAgentSetupInput } from "@/lib/prospecting/agent-setup-schema";
 
 type Campaign = {
   id: string;
   name: string;
+  search: { niche?: string; location?: string } | null;
   status: string;
   search_status: string;
   error: string | null;
@@ -153,6 +155,16 @@ export function ProspectingClient() {
     );
   }
   const candidates = data?.candidates.filter((c) => c.campaign_id === campaign?.id) ?? [];
+  // Empresas que a busca digitada já trouxe em outras campanhas: a busca nova
+  // passa por elas e vai mais fundo no Maps (`lib/prospecting/busca-repetida.ts`).
+  const campanhasDaMesmaBusca = new Set(
+    (data?.campaigns ?? [])
+      .filter((c) => mesmaBusca(c.search ?? {}, { niche, location }))
+      .map((c) => c.id),
+  );
+  const conhecidosDaBusca = campanhasDaMesmaBusca.size
+    ? (data?.candidates ?? []).filter((c) => campanhasDaMesmaBusca.has(c.campaign_id)).length
+    : 0;
   async function perform(body: unknown, message: string) {
     setBusy(true);
     setError(null);
@@ -345,6 +357,15 @@ export function ProspectingClient() {
                 />
                 {t("Enriquecer com e-mails comerciais e redes encontradas no site")}
               </label>
+              {conhecidosDaBusca > 0 && (
+                <p role="status" className="rounded-md border bg-muted/30 p-3 text-xs">
+                  {conhecidosDaBusca}{" "}
+                  {t("empresas desta busca já estão nas suas campanhas e não vão se repetir.")}{" "}
+                  {t("Para trazer novas, a busca vai olhar até")}{" "}
+                  {alcanceDaBusca(limit || 0, conhecidosDaBusca)}{" "}
+                  {t("lugares no Maps, dentro do teto de gasto.")}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
                 {t(
                   "A pesquisa usa seu saldo da Apify. A quantidade encontrada pode ser menor que o limite. Nenhuma abordagem começa nesta etapa.",
