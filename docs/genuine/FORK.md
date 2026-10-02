@@ -60,7 +60,7 @@ O sufixo evita colidir com as tags do original. Ressalva conhecida: o `install.s
    git push origin v1.69.0-genuine.N
    ```
 3. O `publish-image.yml` publica as quatro imagens com o número `1.69.0-genuine.N`. Conferir que o workflow terminou verde.
-4. Criar a **Release** no GitHub para a tag, **sem** marcar como pré-lançamento. Sem a Release, a VPS não enxerga a versão: ela consulta `releases/latest`, não a lista de tags.
+4. Criar a **Release** no GitHub para a tag, **sem** marcar como pré-lançamento e **com a caixa "Set as the latest release" marcada**. A VPS consulta `releases/latest`, não a lista de tags: sem a Release, ou com ela publicada sem a marca de mais recente, a VPS responde "já está na versão mais recente". Medido em 02/10/2026: as releases `.2` e `.3` saíram sem a marca, e o `update.sh` seguia vendo a `.1`. Conserto de uma release já publicada: Edit release, marcar a caixa, Update release.
 5. Na VPS: `cd /root/DeskcommCRM && bash hostgator-setup-kit/update.sh`.
 
 O `release.yml` do original não funciona no fork: depende de um GitHub App e de uma checagem do site do mantenedor. Ele só roda em push na `main` ou disparo manual, e nenhum dos dois faz parte do fluxo do fork.
