@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { ufDoLugar } from "./aceite/regiao";
 import { avaliarTelefoneBR } from "./aceite/telefone";
 
 export const campaignConfigSchema = z
@@ -51,7 +52,13 @@ export interface Prospect {
   phone_issue?: string | null;
   website: string | null;
   category: string | null;
+  /** Todas as categorias do lugar no Maps; a régua de segmento lê para salvar fábrica. */
+  categories?: string[];
   address: string | null;
+  city?: string | null;
+  /** UF do lugar (`aceite/regiao.ts`), `null` quando não dá para saber. */
+  state_code?: string | null;
+  country_code?: string | null;
   maps_url: string | null;
   rating: number | null;
   reviews: number | null;
@@ -83,7 +90,11 @@ export function normalizeProspect(item: Record<string, unknown>): Prospect | nul
     phone_issue: telefone.ok ? null : telefone.motivo,
     website: str("website"),
     category: str("categoryName"),
+    categories: urls("categories"),
     address: str("address"),
+    city: str("city", 120),
+    state_code: ufDoLugar(str("address"), str("state", 120)),
+    country_code: str("countryCode", 4),
     maps_url: str("url"),
     rating: typeof item.totalScore === "number" ? item.totalScore : null,
     reviews: typeof item.reviewsCount === "number" ? item.reviewsCount : null,

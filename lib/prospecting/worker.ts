@@ -21,6 +21,7 @@ import { autorizarContatoParaIA } from "@/lib/ai/elegibilidade/autorizacao";
 import { decidirPreGoLiveDoCanalViaSupabase } from "@/lib/ai/elegibilidade/consulta-pre-go-live";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { conferirWhatsappDoCandidato } from "./aceite/whatsapp";
 import { assertProspectingDelivery } from "./guard";
 import { campaignConfigSchema } from "./schema";
 import { ProspectingError } from "./provider";
@@ -163,6 +164,25 @@ export async function sendNextCandidate(
       422,
       "candidato",
     );
+  // O número tem WhatsApp? Perguntado aqui, um por vez, no ritmo da esteira:
+  // nunca em lote (ver `aceite/whatsapp.ts`). Só `nao_tem` tira o candidato,
+  // ANTES de reservar a vez do canal, e a próxima rodada pega o próximo.
+  if (
+    p.phone &&
+    (await conferirWhatsappDoCandidato(db, c.organization_id, cfg.channel_session_id, p.phone)) ===
+      "nao_tem"
+  ) {
+    await db.query(
+      "update prospecting_candidates set status='skipped',error='Número sem WhatsApp.',updated_at=now() where organization_id=$1 and id=$2 and status='queued'",
+      [c.organization_id, p.id],
+    );
+    logger.info("[prospecting] candidato sem WhatsApp; a campanha segue", {
+      organization_id: c.organization_id,
+      campaign_id: c.id,
+      candidate_id: p.id,
+    });
+    return;
+  }
   await db.query("begin");
   try {
     await db.query(
