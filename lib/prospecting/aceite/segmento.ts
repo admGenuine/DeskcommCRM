@@ -70,22 +70,79 @@ const FORA_DO_PERFIL = [
 /** Trechos que, em qualquer categoria do lugar, indicam produção. */
 const INDICA_PRODUCAO = ["fabrica", "fabricante", "industria", "industrial", "produtor", "frigorifico", "laticinio", "torrefacao", "beneficiamento"];
 
-function recusa(categoria: string): boolean {
-  const c = normalizarTexto(categoria);
-  return FORA_DO_PERFIL.some((t) => c === t || c.startsWith(`${t} `));
-}
+/**
+ * No NOME, além dos trechos acima: abreviações de razão social ("Fabr de Prod
+ * Alimentícios", "Ind. e Com.") e a palavra "alimentos", que em nome de empresa
+ * indica quem produz ou distribui, não quem serve ao público.
+ */
+const NOME_INDICA_PRODUCAO = /(^|[^a-z])(fabr|ind|alimentos|alimenticios|alimenticia)([^a-z]|$)/;
 
 /**
- * Devolve a categoria que tira o lugar do perfil, ou `null` quando ele fica.
- * A categoria principal decide; as demais só servem para salvar (produção).
+ * Começos de NOME que indicam varejo ou serviço de alimentação. Medido no teste
+ * da Genuine em 01/10/2026: "Mercado Paineiras" e "Frutaria Silvana" vinham do
+ * Maps com a categoria "Fornecedor de produtos alimentícios" e passavam.
  */
-export function categoriaForaDoPerfil(
-  principal: string | null | undefined,
-  outras: readonly string[] = [],
-): string | null {
-  const todas = [principal, ...outras].filter((c): c is string => !!c && !!c.trim());
-  if (!todas.length) return null;
-  if (todas.some((c) => INDICA_PRODUCAO.some((t) => normalizarTexto(c).includes(t)))) return null;
-  const decisiva = principal?.trim() ? principal : todas[0]!;
-  return recusa(decisiva) ? decisiva.trim() : null;
+const NOME_DE_VAREJO = [
+  "padaria",
+  "panificadora",
+  "confeitaria",
+  "doceria",
+  "restaurante",
+  "lanchonete",
+  "pizzaria",
+  "hamburgueria",
+  "churrascaria",
+  "pastelaria",
+  "sorveteria",
+  "cafeteria",
+  "bar",
+  "boteco",
+  "supermercado",
+  "hipermercado",
+  "mercado",
+  "minimercado",
+  "mercearia",
+  "acougue",
+  "casa de carnes",
+  "hortifruti",
+  "sacolao",
+  "quitanda",
+  "frutaria",
+  "emporio",
+];
+
+const comecaCom = (texto: string, termos: readonly string[]) => {
+  const t = normalizarTexto(texto);
+  return termos.some((termo) => t === termo || t.startsWith(`${termo} `));
+};
+
+const indicaProducao = (texto: string) =>
+  INDICA_PRODUCAO.some((t) => normalizarTexto(texto).includes(t));
+
+/**
+ * Por que o lugar está fora do perfil, ou `null` quando ele fica.
+ *
+ * Ordem, e por que nesta ordem:
+ *   1. produção no nome OU em qualquer categoria SALVA ("Essenza Comércio e
+ *      Indústria", que o Maps chama de "Loja de produtos naturais");
+ *   2. a categoria principal de varejo/serviço recusa;
+ *   3. o começo do nome de varejo recusa ("Mercado Paineiras", que o Maps chama
+ *      de "Fornecedor de produtos alimentícios").
+ */
+export function segmentoForaDoPerfil(lugar: {
+  nome: string;
+  principal?: string | null;
+  outras?: readonly string[];
+}): string | null {
+  const categorias = [lugar.principal, ...(lugar.outras ?? [])].filter(
+    (c): c is string => !!c && !!c.trim(),
+  );
+  if (NOME_INDICA_PRODUCAO.test(normalizarTexto(lugar.nome)) || indicaProducao(lugar.nome)) return null;
+  if (categorias.some(indicaProducao)) return null;
+  const decisiva = lugar.principal?.trim() ? lugar.principal : categorias[0];
+  if (decisiva && comecaCom(decisiva, FORA_DO_PERFIL))
+    return `Categoria fora do perfil: ${decisiva.trim()}.`;
+  if (comecaCom(lugar.nome, NOME_DE_VAREJO))
+    return `Nome indica varejo ou alimentação ao público: ${lugar.nome.trim()}.`;
+  return null;
 }
