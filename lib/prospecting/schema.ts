@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { avaliarTelefoneBR } from "./aceite/telefone";
+
 export const campaignConfigSchema = z
   .object({
     agent_id: z.string().uuid(),
@@ -43,6 +45,10 @@ export interface Prospect {
   key: string;
   name: string;
   phone: string | null;
+  /** `celular` ou `fixo` quando o telefone passou na régua; `null` quando não passou. */
+  phone_kind?: "celular" | "fixo" | null;
+  /** Por que o telefone foi recusado (`lib/prospecting/aceite/telefone.ts`). */
+  phone_issue?: string | null;
   website: string | null;
   category: string | null;
   address: string | null;
@@ -53,7 +59,7 @@ export interface Prospect {
   socials: string[];
 }
 
-/** The existing Maps integrations normalize Brazilian numbers; never guess a foreign country. */
+/** Telefone pela régua de `aceite/telefone.ts`; número estrangeiro nunca vira brasileiro. */
 export function normalizeProspect(item: Record<string, unknown>): Prospect | null {
   const str = (key: string, limit = 500) =>
     typeof item[key] === "string" ? (item[key] as string).trim().slice(0, limit) : null;
@@ -61,10 +67,8 @@ export function normalizeProspect(item: Record<string, unknown>): Prospect | nul
   const place = str("placeId", 200);
   if (!name || !place || item.permanentlyClosed === true || item.temporarilyClosed === true)
     return null;
-  const raw = str("phoneUnformatted") || str("phone") || "";
-  let digits = raw.replace(/\D/g, "");
-  if (!raw.startsWith("+") && [10, 11].includes(digits.length)) digits = `55${digits}`;
-  const phone = /^55\d{10,11}$/.test(digits) ? `+${digits}` : null;
+  const telefone = avaliarTelefoneBR(str("phoneUnformatted") || str("phone"));
+  const phone = telefone.ok ? telefone.e164 : null;
   const urls = (key: string) =>
     Array.isArray(item[key])
       ? (item[key] as unknown[])
@@ -75,6 +79,8 @@ export function normalizeProspect(item: Record<string, unknown>): Prospect | nul
     key: place,
     name,
     phone,
+    phone_kind: telefone.ok ? telefone.tipo : null,
+    phone_issue: telefone.ok ? null : telefone.motivo,
     website: str("website"),
     category: str("categoryName"),
     address: str("address"),
