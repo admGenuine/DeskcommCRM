@@ -28,6 +28,18 @@ describe("native prospecting", () => {
     expect(normalizeProspect({ title: "No identity" })).toBeNull();
     expect(safePublicLink("javascript:alert(1)")).toBeUndefined();
   });
+  it("recusa na normalização o telefone que a régua antiga deixava passar", () => {
+    const tel = (phone: string) => {
+      const p = normalizeProspect({ title: "Example", placeId: "p1", phone });
+      return [p?.phone ?? null, p?.phone_kind ?? null, p?.phone_issue ?? null];
+    };
+    expect(tel("0800 123 4567")[0]).toBeNull();
+    expect(tel("0800 123 4567")[2]).toContain("atendimento");
+    expect(tel("(041) 3333-4444")).toEqual(["+554133334444", "fixo", null]);
+    expect(tel("(00) 99999-9999")[0]).toBeNull();
+    expect(tel("(41) 99999-8888")).toEqual(["+5541999998888", "celular", null]);
+  });
+
   it("requires limits and tenant comes from authenticated session", () => {
     expect(
       searchSchema.safeParse({ name: "test", niche: "test", location: "SP", limit: 101 }).success,

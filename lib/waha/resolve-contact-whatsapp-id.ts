@@ -133,3 +133,28 @@ export async function resolveCanonicalCusChatId(
   const r = await firstExistingOnWhatsapp(client, session, digits);
   return (r && sendChatIdFromCheckResult(r)) || chatId;
 }
+
+/**
+ * O número existe no WhatsApp? Pergunta pelas DUAS grafias do nono dígito.
+ *
+ * `true` quando alguma grafia existe; `false` só quando TODAS responderam que
+ * não; `null` quando alguma falhou e nenhuma disse que existe. Diferente de
+ * `firstExistingOnWhatsapp`, aqui "não sei" não se confunde com "não existe":
+ * quem chama decide descartar alguém pela resposta.
+ */
+export async function numeroExisteNoWhatsapp(
+  consultar: (digitos: string) => Promise<{ numberExists: boolean }>,
+  phone: string,
+): Promise<boolean | null> {
+  const grafias = [...new Set(phoneLookupVariants(phone).map((v) => v.replace(/\D/g, "")))].filter(Boolean);
+  if (!grafias.length) return null;
+  let todasResponderam = true;
+  for (const digitos of grafias) {
+    try {
+      if ((await consultar(digitos)).numberExists) return true;
+    } catch {
+      todasResponderam = false;
+    }
+  }
+  return todasResponderam ? false : null;
+}

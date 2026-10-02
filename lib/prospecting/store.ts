@@ -17,6 +17,7 @@ import {
   type SearchInput,
   type Prospect,
 } from "./schema";
+import { avaliarCandidato } from "./aceite";
 import {
   ProspectingError,
   providerRequest,
@@ -158,35 +159,72 @@ export async function createSearch(
     ).rows[0]!;
   });
 }
+/** Estados do provedor em que a busca PAROU antes do fim, mas o que achou até ali está no dataset. */
+const BUSCA_INTERROMPIDA = ["ABORTED", "TIMED-OUT"];
+
 export async function synchronizeSearch(db: pg.PoolClient, admin: SupabaseClient, c: Campaign) {
   if (!c.run_id) return;
   const key = await credential(db, admin, c.organization_id);
   const run = await readSearch(key, c.run_id);
-  if (["FAILED", "ABORTED", "TIMED-OUT"].includes(run.status)) {
-    await db.query(
+  const interrompida = BUSCA_INTERROMPIDA.includes(run.status);
+  const dataset = run.defaultDatasetId ?? c.dataset_id;
+  const falhar = (motivo: string) =>
+    db.query(
       "update prospecting_campaigns set search_status='failed',error=$3,updated_at=now() where organization_id=$1 and id=$2",
-      [c.organization_id, c.id, `A busca terminou com estado ${run.status}.`],
+      [c.organization_id, c.id, motivo],
     );
+  if (run.status === "FAILED" || (interrompida && !dataset)) {
+    await falhar(`A busca terminou com estado ${run.status}.`);
     return;
   }
-  if (run.status !== "SUCCEEDED") return;
-  const dataset = run.defaultDatasetId ?? c.dataset_id;
+  if (run.status !== "SUCCEEDED" && !interrompida) return;
   if (!dataset) throw new ProspectingError("Busca concluída sem resultado disponível.");
+  // Busca que estourou o tempo JÁ FOI PAGA: o que ela achou até parar fica no
+  // dataset. Antes, TIMED-OUT descartava tudo e a busca precisava ser refeita.
   const items = await readResults(key, dataset, c.search.limit);
+  if (interrompida && !items.length) {
+    await falhar(`A busca terminou com estado ${run.status}.`);
+    return;
+  }
+  const prospects = items.map(normalizeProspect).filter((p): p is Prospect => p !== null);
+  // Quem já está no CRM sai NA ENTRADA, com o motivo, e não só na hora de abordar.
+  const variantes = [...new Set(prospects.flatMap((p) => (p.phone ? phoneLookupVariants(p.phone) : [])))];
+  const noCrm = new Set(
+    variantes.length
+      ? (
+          await db.query<{ phone_number: string }>(
+            "select phone_number from contacts where organization_id=$1 and phone_number=any($2::text[])",
+            [c.organization_id, variantes],
+          )
+        ).rows.map((r) => r.phone_number)
+      : [],
+  );
   let inserted = 0;
   await db.query("begin");
   try {
-    for (const item of items) {
-      const p = normalizeProspect(item);
-      if (!p) continue;
+    for (const p of prospects) {
+      const veredito = avaliarCandidato(p, c.search);
+      const motivo = !veredito.aprovado
+        ? veredito.motivo
+        : p.phone && phoneLookupVariants(p.phone).some((v) => noCrm.has(v))
+          ? "Já está no CRM."
+          : null;
       const result = await db.query(
-        "insert into prospecting_candidates(organization_id,campaign_id,place_id,phone,data) values($1,$2,$3,$4,$5) on conflict do nothing",
-        [c.organization_id, c.id, p.key, p.phone, p],
+        "insert into prospecting_candidates(organization_id,campaign_id,place_id,phone,data,status,error) values($1,$2,$3,$4,$5,$6,$7) on conflict do nothing",
+        [
+          c.organization_id,
+          c.id,
+          p.key,
+          p.phone,
+          { ...p, aceite: motivo ? { aprovado: false, motivo } : { aprovado: true } },
+          motivo ? "skipped" : "new",
+          motivo,
+        ],
       );
       inserted += result.rowCount ?? 0;
     }
     await db.query(
-      "update prospecting_campaigns set search_status='succeeded',dataset_id=$3,cost_usd=$4,result_count=$5,skipped_count=$6,error=null,updated_at=now() where organization_id=$1 and id=$2",
+      "update prospecting_campaigns set search_status='succeeded',dataset_id=$3,cost_usd=$4,result_count=$5,skipped_count=$6,error=$7,updated_at=now() where organization_id=$1 and id=$2",
       [
         c.organization_id,
         c.id,
@@ -194,6 +232,9 @@ export async function synchronizeSearch(db: pg.PoolClient, admin: SupabaseClient
         run.usageTotalUsd ?? null,
         inserted,
         items.length - inserted,
+        interrompida
+          ? `A busca parou antes do fim (${run.status}); as ${inserted} empresas encontradas até ali foram aproveitadas.`
+          : null,
       ],
     );
     await db.query("commit");
@@ -310,8 +351,8 @@ export async function activateCampaign(
     for (const p of candidates) {
       if (!p.phone) {
         await db.query(
-          "update prospecting_candidates set status='skipped',error='Sem telefone brasileiro válido.' where organization_id=$1 and id=$2",
-          [org, p.id],
+          "update prospecting_candidates set status='skipped',error=$3 where organization_id=$1 and id=$2",
+          [org, p.id, p.data.phone_issue ?? "Sem telefone brasileiro válido."],
         );
         continue;
       }

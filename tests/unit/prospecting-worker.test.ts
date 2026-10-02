@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   authorize: vi.fn(),
   knobs: vi.fn(),
   open: vi.fn(),
+  whatsapp: vi.fn(),
 }));
 vi.mock("@/app/api/v1/messages/_handler", () => ({ sendMessageHandler: mocks.send }));
 vi.mock("@/lib/audit", () => ({ audit: mocks.audit }));
@@ -26,6 +27,7 @@ vi.mock("@/lib/ai/elegibilidade/consulta-pre-go-live", () => ({
   decidirPreGoLiveDoCanalViaSupabase: mocks.preflight,
 }));
 vi.mock("@/lib/prospecting/guard", () => ({ assertProspectingDelivery: mocks.guard }));
+vi.mock("@/lib/prospecting/aceite/whatsapp", () => ({ conferirWhatsappDoCandidato: mocks.whatsapp }));
 vi.mock("@/lib/agent-engine/pacing/store", () => ({
   loadChannelKnobs: mocks.knobs,
   loadPacingState: vi.fn().mockResolvedValue({ sentToday: 0 }),
@@ -113,6 +115,7 @@ beforeEach(() => {
   });
   mocks.authorize.mockResolvedValue({ ok: true });
   mocks.send.mockResolvedValue({ status: "sent" });
+  mocks.whatsapp.mockResolvedValue("nao_sei");
 });
 describe("gradual outreach", () => {
   it("sends one candidate with stable identity and the mandatory last-moment guard", async () => {
@@ -179,6 +182,23 @@ describe("gradual outreach", () => {
     expect(mocks.generate).not.toHaveBeenCalled();
     expect(mocks.send).not.toHaveBeenCalled();
   });
+  it("número sem WhatsApp sai da fila com o motivo, sem gastar a vez do canal", async () => {
+    mocks.whatsapp.mockResolvedValue("nao_tem");
+    const db = database();
+    await sendNextCandidate({} as never, db as never, {} as never, campaign);
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.audit).not.toHaveBeenCalled();
+    expect(db.query.mock.calls.some(([q]) => q.includes("error='Número sem WhatsApp.'"))).toBe(true);
+    expect(db.query.mock.calls.some(([q]) => q.includes("attempted_at=now()"))).toBe(false);
+  });
+
+  it("não saber se tem WhatsApp não descarta: segue para o envio", async () => {
+    mocks.whatsapp.mockResolvedValue("nao_sei");
+    const db = database();
+    await sendNextCandidate({} as never, db as never, {} as never, campaign);
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps spacing across campaign switches", async () => {
     await sendNextCandidate(
       {} as never,

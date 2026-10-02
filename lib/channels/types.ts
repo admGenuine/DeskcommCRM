@@ -282,6 +282,18 @@ export interface ChannelAdapter {
   ): Promise<string | null>;
 
   /**
+   * O número existe na plataforma? `true`/`false` só quando a plataforma
+   * respondeu por todas as grafias do número; `null` quando não deu para saber
+   * (transporte fora do ar, erro de rede). Quem chama não descarta ninguém por
+   * `null`.
+   *
+   * OPCIONAL: só implementa quem consegue perguntar à plataforma.
+   */
+  numeroExiste?(
+    input: ChannelTenantScope & { sessionRef: string; phone: string },
+  ): Promise<boolean | null>;
+
+  /**
    * Gestão das definições aprovadas — criar, editar, apagar.
    *
    * OPCIONAL pelo mesmo motivo dos dois métodos acima: nem todo canal expõe

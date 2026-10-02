@@ -20,6 +20,17 @@ Mudanças de infraestrutura, mínimas, para a VPS seguir o fork:
 - **Trava de procedência** (`.github/workflows/publish-image.yml`, job `a-tag-veio-da-main`): a tag precisa estar contida em `producao`, não na `main`. Vigiado por `tests/unit/tag-so-nasce-da-main.test.ts`.
 - **e2e e perf** rodam também em PR para `producao`.
 
+### Mudanças de produto fora de `lib/prospecting/`
+
+Cada arquivo do núcleo que o fork altera fica listado aqui, com o motivo, porque é onde mora o risco de conflito ao trazer uma release nova do original.
+
+| Arquivo | Mudança | Por quê |
+|---|---|---|
+| `lib/channels/types.ts` | Método opcional `numeroExiste` no contrato do adapter | A prospecção confere se o número tem WhatsApp sem nomear o provider (doutrina de restrição de canal) |
+| `lib/channels/adapters/waha.ts` | Implementa `numeroExiste` | Idem |
+| `lib/waha/resolve-contact-whatsapp-id.ts` | Função `numeroExisteNoWhatsapp` | Distingue "não existe" de "não deu para saber" |
+| `lib/i18n/dicionario.ts` | Traduções das telas da prospecção | Toda chave nova de `t()` precisa de espanhol |
+
 Ao trazer uma release nova do original, essas linhas podem dar conflito. A resolução é sempre manter o lado do fork (`admgenuine` e `producao`).
 
 ## Como a VPS escolhe a versão

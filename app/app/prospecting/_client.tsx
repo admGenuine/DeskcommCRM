@@ -31,6 +31,7 @@ type Candidate = {
   id: string;
   campaign_id: string;
   data: Prospect;
+  status: string;
   progress: string;
   message_status: string | null;
   error: string | null;
@@ -171,6 +172,16 @@ export function ProspectingClient() {
   const update = <K extends keyof CampaignConfig>(field: K, value: CampaignConfig[K]) =>
     setConfig((c) => ({ ...c, [field]: value }));
   const count = (states: string[]) => candidates.filter((c) => states.includes(c.progress)).length;
+  // Recusado = não vai (ou não foi) abordado, com o motivo gravado pela régua de
+  // aceite (`lib/prospecting/aceite`) ou pelo envio. O motivo vem do banco.
+  const recusados = candidates.filter((c) => c.status === "skipped");
+  const motivosDeRecusa = Object.entries(
+    recusados.reduce<Record<string, number>>((acc, c) => {
+      const motivo = c.error ?? t("Sem motivo registrado");
+      acc[motivo] = (acc[motivo] ?? 0) + 1;
+      return acc;
+    }, {}),
+  ).sort((a, b) => b[1] - a[1]);
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 md:p-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -397,9 +408,11 @@ export function ProspectingClient() {
                     {campaign.error}
                   </p>
                 )}
-                <div className="mt-5 grid grid-cols-2 gap-4 md:grid-cols-4">
+                <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
                   {[
                     [t("Encontrados"), candidates.length],
+                    [t("Aprovados"), candidates.length - recusados.length],
+                    [t("Recusados"), recusados.length],
                     [t("Na fila"), count(["queued", "sending"])],
                     [t("Responderam"), count(["replied", "qualified"])],
                     [t("Qualificados"), count(["qualified"])],
@@ -410,6 +423,23 @@ export function ProspectingClient() {
                     </div>
                   ))}
                 </div>
+                {motivosDeRecusa.length > 0 && (
+                  <div className="mt-4 rounded-md border p-3">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {t("Por que ficaram de fora")}
+                    </p>
+                    <ul className="mt-2 space-y-1 text-sm">
+                      {motivosDeRecusa.map(([motivo, quantos]) => (
+                        <li key={motivo} className="flex gap-3">
+                          <span className="w-8 shrink-0 text-right font-medium tabular-nums">
+                            {quantos}
+                          </span>
+                          <span className="text-muted-foreground">{motivo}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {campaign.skipped_count > 0 && (
                   <p className="mt-3 text-xs text-muted-foreground">
                     {campaign.skipped_count}{" "}
