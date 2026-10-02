@@ -10,6 +10,7 @@ import { fetchWahaMedia } from "@/lib/messaging/media/waha-source";
 import { getWahaClient } from "@/lib/waha/client";
 import { wahaSendPlanFor } from "@/lib/waha/media-send";
 import {
+  numeroExisteNoWhatsapp,
   resolveCanonicalCusChatId,
   resolvePhoneJidDigitsForCall,
   resolveWhatsappIdForContactCard,
@@ -135,6 +136,13 @@ export const wahaAdapter: ChannelAdapter = {
     const client = getWahaClient();
     if (!client) return null;
     return resolvePhoneJidDigitsForCall(client, input.sessionRef, input.phone);
+  },
+
+  /** `check-exists` nas duas grafias; ver `numeroExisteNoWhatsapp`. Sem transporte, `null`. */
+  async numeroExiste(input: { sessionRef: string; phone: string }): Promise<boolean | null> {
+    const client = getWahaClient();
+    if (!client) return null;
+    return numeroExisteNoWhatsapp((digitos) => client.checkContactExists(input.sessionRef, digitos), input.phone);
   },
 
   /**

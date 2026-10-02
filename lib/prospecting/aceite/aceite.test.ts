@@ -4,7 +4,6 @@ import type { Prospect } from "../schema";
 import { avaliarCandidato } from "./index";
 import { ufDaBusca, ufDoLugar } from "./regiao";
 import { categoriaForaDoPerfil } from "./segmento";
-import { numeroTemWhatsapp } from "./whatsapp";
 
 const lugar = (extra: Partial<Prospect> = {}): Prospect => ({
   key: "p1",
@@ -129,38 +128,5 @@ describe("veredito de entrada", () => {
       aprovado: false,
       motivo: "Empresa fora do Brasil.",
     });
-  });
-});
-
-describe("WhatsApp: só `nao_tem` quando TODAS as grafias responderam que não", () => {
-  it("tem quando alguma grafia existe", async () => {
-    const consultar = async (d: string) => ({ numberExists: d === "554199998888" });
-    expect(await numeroTemWhatsapp(consultar, "+5541999998888")).toBe("tem");
-  });
-
-  it("nao_tem quando as duas grafias respondem que não", async () => {
-    const vistas: string[] = [];
-    const consultar = async (d: string) => {
-      vistas.push(d);
-      return { numberExists: false };
-    };
-    expect(await numeroTemWhatsapp(consultar, "+5541999998888")).toBe("nao_tem");
-    expect(vistas).toEqual(["5541999998888", "554199998888"]);
-  });
-
-  it("nao_sei quando o transporte falha: não saber não descarta ninguém", async () => {
-    const consultar = async () => {
-      throw new Error("waha_502");
-    };
-    expect(await numeroTemWhatsapp(consultar, "+5541999998888")).toBe("nao_sei");
-  });
-
-  it("nao_sei quando uma grafia falhou e a outra disse que não", async () => {
-    let n = 0;
-    const consultar = async () => {
-      if (n++ === 0) throw new Error("timeout");
-      return { numberExists: false };
-    };
-    expect(await numeroTemWhatsapp(consultar, "+5541999998888")).toBe("nao_sei");
   });
 });
