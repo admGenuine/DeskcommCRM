@@ -15,6 +15,7 @@ import { safePublicLink, type CampaignConfig, type Prospect } from "@/lib/prospe
 import { alcanceDaBusca, mesmaBusca } from "@/lib/prospecting/busca-repetida";
 import { ProspectingAgentBuilder, type CreatedProspectingAgent } from "./_create-agent";
 import { AprendizadoCard, AvaliacaoDaEmpresa, ReferenciaDaCampanha } from "./_avaliacao";
+import { FILTROS, passaNoFiltro, type Filtro } from "./_filtro";
 import type { PerfilAprendido } from "@/lib/prospecting/aprendizado";
 import type { ProspectingAgentSetupInput } from "@/lib/prospecting/agent-setup-schema";
 
@@ -102,6 +103,8 @@ export function ProspectingClient() {
   const [key, setKey] = useState("");
   const [settings, setSettings] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const [filtro, setFiltro] = useState<{ tipo: Filtro; motivo?: string }>({ tipo: "todos" });
+  const resultados = useRef<HTMLDivElement>(null);
   const [niche, setNiche] = useState("");
   const [location, setLocation] = useState("");
   const [limit, setLimit] = useState(20);
@@ -188,7 +191,7 @@ export function ProspectingClient() {
   }
   const update = <K extends keyof CampaignConfig>(field: K, value: CampaignConfig[K]) =>
     setConfig((c) => ({ ...c, [field]: value }));
-  const count = (states: string[]) => candidates.filter((c) => states.includes(c.progress)).length;
+  const count = (filtro: Filtro) => candidates.filter((c) => passaNoFiltro(c, filtro)).length;
   // Recusado = não vai (ou não foi) abordado, com o motivo gravado pela régua de
   // aceite (`lib/prospecting/aceite`) ou pelo envio. O motivo vem do banco.
   const recusados = candidates.filter((c) => c.status === "skipped");
@@ -199,6 +202,30 @@ export function ProspectingClient() {
       return acc;
     }, {}),
   ).sort((a, b) => b[1] - a[1]);
+  // Os contadores filtram a tabela (`_filtro.ts`); o motivo, quando há, estreita
+  // os recusados a um motivo só.
+  const visiveis = candidates.filter(
+    (c) =>
+      passaNoFiltro(c, filtro.tipo) &&
+      (!filtro.motivo || (c.error ?? t("Sem motivo registrado")) === filtro.motivo),
+  );
+  const rotulosDosFiltros: Record<Filtro, string> = {
+    todos: t("Encontrados"),
+    aprovados: t("Aprovados"),
+    recusados: t("Recusados"),
+    fila: t("Na fila"),
+    responderam: t("Responderam"),
+    qualificados: t("Qualificados"),
+  };
+  const filtrar = (tipo: Filtro, motivo?: string) => {
+    setFiltro({ tipo, motivo });
+    resultados.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const recusadasPorCampanha = (data?.candidates ?? []).reduce<Record<string, number>>(
+    (acc, c) =>
+      c.status === "skipped" ? { ...acc, [c.campaign_id]: (acc[c.campaign_id] ?? 0) + 1 } : acc,
+    {},
+  );
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 md:p-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -390,6 +417,7 @@ export function ProspectingClient() {
                   type="button"
                   onClick={() => {
                     setSelected(c.id);
+                    setFiltro({ tipo: "todos" });
                     setNotice(null);
                   }}
                   className={`w-full rounded-lg border p-3 text-left ${campaign?.id === c.id ? "border-primary bg-primary/5" : "bg-card"}`}
@@ -404,6 +432,9 @@ export function ProspectingClient() {
                   </span>
                   <span className="mt-1 block text-xs text-muted-foreground">
                     {t(labels[c.status] ?? c.status)} · {c.result_count} {t("empresas")}
+                    {recusadasPorCampanha[c.id]
+                      ? ` · ${recusadasPorCampanha[c.id]} ${recusadasPorCampanha[c.id] === 1 ? t("recusada") : t("recusadas")}`
+                      : ""}
                   </span>
                 </button>
               ))}
@@ -451,19 +482,24 @@ export function ProspectingClient() {
                     </p>
                   ))}
                 <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-                  {[
-                    [t("Encontrados"), candidates.length],
-                    [t("Aprovados"), candidates.length - recusados.length],
-                    [t("Recusados"), recusados.length],
-                    [t("Na fila"), count(["queued", "sending"])],
-                    [t("Responderam"), count(["replied", "qualified"])],
-                    [t("Qualificados"), count(["qualified"])],
-                  ].map(([label, value]) => (
-                    <div key={label}>
-                      <p className="text-2xl font-semibold tabular-nums">{value}</p>
-                      <p className="text-xs text-muted-foreground">{label}</p>
-                    </div>
-                  ))}
+                  {FILTROS.map((tipo) => {
+                    const ativo = filtro.tipo === tipo && !filtro.motivo;
+                    return (
+                      <button
+                        key={tipo}
+                        type="button"
+                        aria-pressed={ativo}
+                        title={t("Mostrar na tabela de resultados")}
+                        onClick={() => filtrar(tipo)}
+                        className={`rounded-md p-2 text-left transition-colors hover:bg-muted ${ativo ? "bg-muted" : ""}`}
+                      >
+                        <p className="text-2xl font-semibold tabular-nums">{count(tipo)}</p>
+                        <p className="text-xs text-muted-foreground underline-offset-2 hover:underline">
+                          {rotulosDosFiltros[tipo]}
+                        </p>
+                      </button>
+                    );
+                  })}
                 </div>
                 {motivosDeRecusa.length > 0 && (
                   <div className="mt-4 rounded-md border p-3">
@@ -472,11 +508,19 @@ export function ProspectingClient() {
                     </p>
                     <ul className="mt-2 space-y-1 text-sm">
                       {motivosDeRecusa.map(([motivo, quantos]) => (
-                        <li key={motivo} className="flex gap-3">
-                          <span className="w-8 shrink-0 text-right font-medium tabular-nums">
-                            {quantos}
-                          </span>
-                          <span className="text-muted-foreground">{motivo}</span>
+                        <li key={motivo}>
+                          <button
+                            type="button"
+                            onClick={() => filtrar("recusados", motivo)}
+                            className="flex w-full gap-3 rounded text-left hover:bg-muted"
+                          >
+                            <span className="w-8 shrink-0 text-right font-medium tabular-nums">
+                              {quantos}
+                            </span>
+                            <span className="text-muted-foreground underline-offset-2 hover:underline">
+                              {motivo}
+                            </span>
+                          </button>
                         </li>
                       ))}
                     </ul>
@@ -852,7 +896,7 @@ export function ProspectingClient() {
                   </Card>
                 )}
               {candidates.length > 0 && (
-                <Card className="overflow-hidden">
+                <Card ref={resultados} className="scroll-mt-4 overflow-hidden">
                   <div className="border-b p-5">
                     <h2 className="text-lg font-semibold">{t("3. Acompanhar resultados")}</h2>
                     <p className="text-sm text-muted-foreground">
@@ -860,6 +904,22 @@ export function ProspectingClient() {
                         "Encontrado é diferente de qualificado. A qualificação depende do que for confirmado na conversa.",
                       )}
                     </p>
+                    {(filtro.tipo !== "todos" || filtro.motivo) && (
+                      <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md bg-muted p-3 text-sm">
+                        <span>
+                          {t("Mostrando")} {visiveis.length} {t("de")} {candidates.length}
+                          {filtro.motivo ? `: ${filtro.motivo}` : ""}
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setFiltro({ tipo: "todos" })}
+                        >
+                          {t("Mostrar todas")}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
@@ -873,7 +933,17 @@ export function ProspectingClient() {
                         </tr>
                       </thead>
                       <tbody>
-                        {candidates.map((c) => (
+                        {visiveis.length === 0 && (
+                          <tr>
+                            <td
+                              colSpan={5}
+                              className="p-6 text-center text-sm text-muted-foreground"
+                            >
+                              {t("Nenhuma empresa neste filtro.")}
+                            </td>
+                          </tr>
+                        )}
+                        {visiveis.map((c) => (
                           <tr key={c.id} className="border-b last:border-0">
                             <td className="p-4 align-top">
                               <p className="font-medium">{c.data.name}</p>
@@ -931,7 +1001,9 @@ export function ProspectingClient() {
                                 onAvaliar={(nota, motivo) =>
                                   perform(
                                     { action: "rate", id: c.id, nota, motivo: motivo || null },
-                                    t("Avaliação salva. As próximas buscas levam em conta o seu gosto."),
+                                    t(
+                                      "Avaliação salva. As próximas buscas levam em conta o seu gosto.",
+                                    ),
                                   )
                                 }
                               />
