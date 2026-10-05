@@ -20,6 +20,14 @@
 -- interrompido não esvazia o mercado).
 \set ON_ERROR_STOP on
 
+-- A tabela nasce na migration 9002, que chega ao banco quando a VPS atualiza.
+-- Release publicada antes da atualização da VPS cai aqui, com o que fazer.
+select to_regclass('public.prospecting_market_companies') is not null as tem_tabela \gset
+\if :tem_tabela
+\else
+  do $$ begin raise exception 'A tabela do mercado ainda não existe neste banco: atualize a instalação (update.sh) e rode a rotina de novo.'; end $$;
+\endif
+
 begin;
 
 create temp table mercado_carga (like public.prospecting_market_companies including defaults)
