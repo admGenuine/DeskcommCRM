@@ -1,0 +1,177 @@
+# Mercado da prospecção: a base pública de CNPJ da Receita, filtrada para o
+# recorte do dono, gravada em `prospecting_market_companies` (migration 9002).
+#
+# Fork da Genuine (admgenuine/DeskcommCRM). Plano: docs/genuine/PLANO-PROSPECCAO.md,
+# Fase 2. Fonte: a Receita; quando ela recusa o runner (fica fora do Brasil), o
+# espelho mensal da Casa dos Dados (`scripts/genuine/mercado/listar_receita.py`). Por que aqui e não na VPS: a base inteira tem alguns GB compactados e
+# a VPS não comporta baixar nem processar; o runner do GitHub sim, e só o
+# recorte (alguns MB) chega ao banco.
+#
+# Quatro jeitos de rodar; dois gravam:
+#   - pull_request que mexe na importação: baixa e filtra a base INTEIRA, publica
+#     o resumo e o CSV como artefato, e não grava nada. É o teste de verdade do
+#     filtro contra a base real.
+#   - workflow_dispatch sem `gravar`: igual, para medir antes de gravar.
+#   - workflow_dispatch com `gravar` na `producao`: além disso, carrega no banco
+#     do segredo MERCADO_DB_URL (connection string do Supabase), numa transação.
+#   - tag de versão (a release que o dono publica): filtra e grava, se o segredo
+#     existir. É o que mantém o mercado em dia sem botão: o GitHub só mostra o
+#     "Run workflow" de workflow que está no ramo padrão, e o padrão do fork é a
+#     `main`, espelho do original, onde esta rotina não mora.
+name: genuine-mercado
+
+on:
+  workflow_dispatch:
+    inputs:
+      gravar:
+        description: "Gravar no banco (MERCADO_DB_URL)"
+        type: boolean
+        default: false
+      mes:
+        description: "Mês da base (AAAA-MM). Vazio = o mais recente publicado"
+        type: string
+        default: ""
+  push:
+    tags: ["v*"]
+  pull_request:
+    branches: [producao]
+    paths:
+      - "scripts/genuine/mercado/**"
+      - ".github/workflows/genuine-mercado.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: genuine-mercado-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mercado:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      UFS: PR,SC
+      CNAE_PREFIXOS: "10"
+      CNAE_EXCLUIDOS: "1091102"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Testes do filtro
+        run: python3 -m unittest discover -s scripts/genuine/mercado -v
+
+      - name: Onde está a base
+        id: fonte
+        env:
+          MES_PEDIDO: ${{ inputs.mes }}
+        run: |
+          set -euo pipefail
+          # A Receita publica num compartilhamento Nextcloud, listado por WebDAV, e
+          # recusa conexão de fora do Brasil (o runner do GitHub é de fora): quando
+          # ela não atende, a fonte é o espelho mensal da Casa dos Dados.
+          # `scripts/genuine/mercado/listar_receita.py` explica as duas.
+          if ! python3 scripts/genuine/mercado/listar_receita.py --mes "${MES_PEDIDO:-}" \
+               > "$RUNNER_TEMP/fonte.json" 2> "$RUNNER_TEMP/fonte.err"; then
+            echo "::error::$(head -c 1500 "$RUNNER_TEMP/fonte.err" | tr '\n' ' ')"
+            exit 1
+          fi
+          mes="$(jq -r .mes "$RUNNER_TEMP/fonte.json")"
+          echo "mes=$mes" >> "$GITHUB_OUTPUT"
+          fonte="$(jq -r .fonte "$RUNNER_TEMP/fonte.json")"
+          [ -s "$RUNNER_TEMP/fonte.err" ] && echo "::warning::$(tr '\n' ' ' < "$RUNNER_TEMP/fonte.err" | head -c 800)"
+          echo "::notice::Base $mes, fonte $fonte ($(jq -r .url "$RUNNER_TEMP/fonte.json")): $(jq -r '.arquivos | join(" ")' "$RUNNER_TEMP/fonte.json")"
+
+      - name: Baixar a base
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/receita"
+          mkdir -p "$dir"
+          url="$(jq -r .url "$RUNNER_TEMP/fonte.json")"
+          usuario="$(jq -r .usuario "$RUNNER_TEMP/fonte.json")"
+          # @uri: o nome vai codificado na URL e no arquivo local (o filtro só olha o começo).
+          jq -r '.arquivos[] | @uri' "$RUNNER_TEMP/fonte.json" \
+            | grep -iE '^(Estabelecimentos|Empresas|Simples|Municipios|Cnaes)' > "$dir/arquivos.txt" || true
+          for prefixo in Estabelecimentos Empresas Simples Municipios Cnaes; do
+            grep -qi "^$prefixo" "$dir/arquivos.txt" \
+              || { echo "::error::Falta $prefixo*.zip em $url"; exit 1; }
+          done
+          auth=()
+          [ -n "$usuario" ] && auth=(-u "$usuario:")
+          # Quatro downloads por vez; cada um retoma de onde parou (-C -).
+          xargs -P 4 -I{} curl -fsSL --retry 8 --retry-delay 15 --retry-all-errors -C - \
+            "${auth[@]}" -o "$dir/{}" "$url{}" < "$dir/arquivos.txt"
+          du -sh "$dir"
+          ls -la "$dir"
+
+      - name: Filtrar o recorte
+        env:
+          MES: ${{ steps.fonte.outputs.mes }}
+        run: |
+          set -euo pipefail
+          mkdir -p saida
+          python3 scripts/genuine/mercado/filtrar_receita.py \
+            --dir "$RUNNER_TEMP/receita" --referencia "$MES" \
+            --ufs "$UFS" --cnae-prefixos "$CNAE_PREFIXOS" --cnae-excluidos "$CNAE_EXCLUIDOS" \
+            --saida saida/mercado.csv --resumo saida/resumo.json
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          r = json.load(open("saida/resumo.json", encoding="utf-8"))
+          print(f"## Mercado: base da Receita {r['referencia']} ({', '.join(r['ufs'])})\n")
+          print("| | |\n|---|---|")
+          for k, rotulo in [
+              ("estabelecimentos_lidos", "Estabelecimentos lidos"),
+              ("no_recorte_antes_do_mei", "No recorte, antes de tirar o MEI"),
+              ("mei_removidos", "MEI removidos"),
+              ("sem_linha_de_empresa", "Sem linha no arquivo de Empresas"),
+              ("no_recorte", "**No mercado**"),
+              ("pela_principal", "Pela atividade principal"),
+              ("matrizes", "Matrizes"),
+              ("com_telefone", "Com telefone"),
+              ("com_email", "Com e-mail"),
+          ]:
+              numero = f"{r[k]:,}".replace(",", ".")
+              print(f"| {rotulo} | {numero} |")
+          print("\n**Por UF:** " + ", ".join(f"{k} {v}" for k, v in r["por_uf"].items()))
+          print("\n**Por porte:** " + ", ".join(f"{k} {v}" for k, v in r["por_porte"].items()))
+          print("\n### Atividades principais\n\n| CNAE | Descrição | Empresas |\n|---|---|---|")
+          for c in r["top_cnae_principal"]:
+              print(f"| {c['cnae']} | {c['descricao']} | {c['empresas']} |")
+          print("\n### Municípios\n\n| Município | Empresas |\n|---|---|")
+          for m in r["top_municipios"]:
+              print(f"| {m['municipio']} | {m['empresas']} |")
+          PY
+          # Os números principais também como aviso do job: aparecem na lista de
+          # checks do PR e na API, sem abrir o resumo.
+          jq -r '"::notice::Mercado \(.referencia): \(.no_recorte) empresas (\(.pela_principal) pela atividade principal, \(.matrizes) matrizes, \(.com_telefone) com telefone, \(.com_email) com e-mail). Por UF: \(.por_uf | to_entries | map("\(.key) \(.value)") | join(", ")). Por porte: \(.por_porte | to_entries | map("\(.key) \(.value)") | join(", ")). MEI removidos: \(.mei_removidos)."' saida/resumo.json
+          jq -r '"::notice::Atividades: \(.top_cnae_principal | map("\(.cnae) \(.descricao) \(.empresas)") | join(" | "))"' saida/resumo.json
+          jq -r '"::notice::Municípios: \(.top_municipios | map("\(.municipio) \(.empresas)") | join(" | "))"' saida/resumo.json
+          gzip -k saida/mercado.csv
+          ls -la saida
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mercado-${{ steps.fonte.outputs.mes }}
+          path: |
+            saida/mercado.csv.gz
+            saida/resumo.json
+          retention-days: 30
+
+      - name: Gravar no banco
+        if: (github.event_name == 'workflow_dispatch' && inputs.gravar && github.ref == 'refs/heads/producao') || github.event_name == 'push'
+        env:
+          MERCADO_DB_URL: ${{ secrets.MERCADO_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MERCADO_DB_URL:-}" ]; then
+            if [ "$GITHUB_EVENT_NAME" = push ]; then
+              # Na release, a falta do segredo não reprova nada: a base foi filtrada
+              # (o artefato está aí) e só não foi gravada.
+              echo "::notice::Segredo MERCADO_DB_URL não configurado: o mercado foi filtrado mas não gravado."
+              exit 0
+            fi
+            echo "::error::Falta o segredo MERCADO_DB_URL (connection string do Supabase)."
+            exit 1
+          fi
+          psql "$MERCADO_DB_URL" -v completa=true \
+            -f scripts/genuine/mercado/carregar.sql < saida/mercado.csv \
+            | tee -a "$GITHUB_STEP_SUMMARY"

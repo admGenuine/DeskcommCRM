@@ -8734,6 +8734,90 @@ export type Database = {
           },
         ]
       }
+      prospecting_market_companies: {
+        Row: {
+          atualizado_em: string
+          bairro: string | null
+          capital_social_centavos: number | null
+          cep: string | null
+          cnae_principal: string
+          cnae_principal_descricao: string | null
+          cnaes_secundarios: string[]
+          cnpj: string
+          cnpj_basico: string
+          data_inicio: string | null
+          email: string | null
+          endereco: string | null
+          matriz: boolean
+          municipio: string | null
+          municipio_codigo: string | null
+          natureza_juridica: string | null
+          nome_fantasia: string | null
+          opcao_simples: boolean | null
+          porte: string
+          razao_social: string
+          recorte_pela_principal: boolean
+          referencia: string
+          telefone1: string | null
+          telefone2: string | null
+          uf: string
+        }
+        Insert: {
+          atualizado_em?: string
+          bairro?: string | null
+          capital_social_centavos?: number | null
+          cep?: string | null
+          cnae_principal: string
+          cnae_principal_descricao?: string | null
+          cnaes_secundarios?: string[]
+          cnpj: string
+          cnpj_basico: string
+          data_inicio?: string | null
+          email?: string | null
+          endereco?: string | null
+          matriz: boolean
+          municipio?: string | null
+          municipio_codigo?: string | null
+          natureza_juridica?: string | null
+          nome_fantasia?: string | null
+          opcao_simples?: boolean | null
+          porte: string
+          razao_social: string
+          recorte_pela_principal: boolean
+          referencia: string
+          telefone1?: string | null
+          telefone2?: string | null
+          uf: string
+        }
+        Update: {
+          atualizado_em?: string
+          bairro?: string | null
+          capital_social_centavos?: number | null
+          cep?: string | null
+          cnae_principal?: string
+          cnae_principal_descricao?: string | null
+          cnaes_secundarios?: string[]
+          cnpj?: string
+          cnpj_basico?: string
+          data_inicio?: string | null
+          email?: string | null
+          endereco?: string | null
+          matriz?: boolean
+          municipio?: string | null
+          municipio_codigo?: string | null
+          natureza_juridica?: string | null
+          nome_fantasia?: string | null
+          opcao_simples?: boolean | null
+          porte?: string
+          razao_social?: string
+          recorte_pela_principal?: boolean
+          referencia?: string
+          telefone1?: string | null
+          telefone2?: string | null
+          uf?: string
+        }
+        Relationships: []
+      }
       push_subscriptions: {
         Row: {
           auth: string

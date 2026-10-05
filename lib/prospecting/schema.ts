@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ufDoLugar } from "./aceite/regiao";
 import { avaliarTelefoneBR } from "./aceite/telefone";
 import { NOTAS, type Avaliacao } from "./aprendizado";
+import { filtrosDoMercadoSchema } from "./mercado/filtros";
 
 export const campaignConfigSchema = z
   .object({
@@ -49,6 +50,15 @@ export const prospectingInputSchema = z.discriminatedUnion("action", [
       motivo: z.string().trim().max(300).nullish(),
     })
     .strict(),
+  // Campanha criada a partir do mercado (base da Receita), sem busca paga.
+  z
+    .object({
+      action: z.literal("market_campaign"),
+      request_id: z.string().uuid(),
+      filtros: filtrosDoMercadoSchema,
+      limite: z.number().int().min(1).max(200).default(50),
+    })
+    .strict(),
   // O dono marca (ou desmarca) a campanha como referência do perfil ideal.
   z
     .object({
@@ -87,6 +97,12 @@ export interface Prospect {
   aceite?: { aprovado: boolean; motivo?: string };
   /** A avaliação do dono ("gostei" / "não gostei"), ausente até ele avaliar. */
   avaliacao?: Avaliacao;
+  /** De onde a empresa veio; ausente = busca do Maps. */
+  fonte?: "mercado";
+  /** Do mercado (base da Receita): CNPJ de 14 dígitos, razão social e porte declarado. */
+  cnpj?: string;
+  razao_social?: string;
+  porte?: string;
 }
 
 /** Telefone pela régua de `aceite/telefone.ts`; número estrangeiro nunca vira brasileiro. */

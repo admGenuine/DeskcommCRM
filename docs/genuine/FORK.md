@@ -30,6 +30,8 @@ Cada arquivo do núcleo que o fork altera fica listado aqui, com o motivo, porqu
 | `lib/channels/adapters/waha.ts` | Implementa `numeroExiste` | Idem |
 | `lib/waha/resolve-contact-whatsapp-id.ts` | Função `numeroExisteNoWhatsapp` | Distingue "não existe" de "não deu para saber" |
 | `lib/i18n/dicionario.ts` | Traduções das telas da prospecção | Toda chave nova de `t()` precisa de espanhol |
+| `tests/unit/gatilho-dos-jobs-de-entrega.test.ts` | Entrada do job `genuine-mercado.yml::mercado` no mapa | Todo job de `.github/workflows` declara o gatilho ali |
+| `tests/invariants/vocabulario-banco-x-typescript.test.ts` | Par `prospecting_market_companies.porte` x `PORTES_DO_MERCADO` | Coluna nova com CHECK de conjunto ganha um par |
 | `tests/shell/colisao-de-migration.test.sh` | `unset GITHUB_REF` no começo | O teste herdava o número do PR do CI, e os PRs do fork (números pequenos) colidiam com os PRs inventados do teste: o PR #7 reprovava 9 casos. Defeito do original, candidato a contribuição |
 
 Ao trazer uma release nova do original, essas linhas podem dar conflito. A resolução é sempre manter o lado do fork (`admgenuine` e `producao`).
@@ -41,8 +43,19 @@ As migrations do fork começam em **9001** (`<timestamp>_9001_<slug>.sql`), long
 | Migration | O que faz |
 |---|---|
 | `9001_prospeccao_campanha_de_referencia` | `prospecting_campaigns.referencia_em` e `referencia_motivo`: a campanha marcada como referência do perfil ideal |
+| `9002_prospeccao_mercado` | `prospecting_market_companies`: a base pública da Receita no recorte da prospecção, escrita pela rotina `genuine-mercado.yml` |
 
 Ao trazer uma release nova do original, o `baseline.sql` e o `MANIFEST.md` podem dar conflito no fim do arquivo: manter os dois lados, com os blocos do fork por último.
+
+### A rotina do mercado (`.github/workflows/genuine-mercado.yml`)
+
+Baixa a base pública de CNPJ da Receita, filtra o recorte da prospecção (`scripts/genuine/mercado/filtrar_receita.py`) e, quando pedido, grava em `prospecting_market_companies` (`scripts/genuine/mercado/carregar.sql`, numa transação).
+
+- Gravar exige o segredo **`MERCADO_DB_URL`** (Settings, Secrets and variables, Actions): a connection string do Supabase, a mesma da VPS.
+- **Quando roda e grava:** a cada release publicada (a tag `v*`), sozinha. Sem o segredo, filtra e não grava, sem reprovar nada.
+- O GitHub só agenda (`schedule`) ou mostra o botão "Run workflow" de workflow que está no ramo padrão, e o padrão do fork é a `main`, espelho do original. Por isso a rotina anda junto com as releases. Para rodar fora delas: disparo pela API (`workflow_dispatch` com `gravar`, ref `producao`).
+- **Fonte:** a Receita recusa conexão de fora do Brasil, e o runner do GitHub é de fora; a rotina usa então o espelho mensal da Casa dos Dados (os mesmos arquivos). O aviso do job diz qual fonte foi usada.
+- O recorte (estados, CNAE) está nas variáveis `UFS`, `CNAE_PREFIXOS` e `CNAE_EXCLUIDOS` do workflow.
 
 ## Como a VPS escolhe a versão
 

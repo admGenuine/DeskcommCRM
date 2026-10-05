@@ -16,6 +16,7 @@ import { alcanceDaBusca, mesmaBusca } from "@/lib/prospecting/busca-repetida";
 import { ProspectingAgentBuilder, type CreatedProspectingAgent } from "./_create-agent";
 import { AprendizadoCard, AvaliacaoDaEmpresa, ReferenciaDaCampanha } from "./_avaliacao";
 import { FILTROS, passaNoFiltro, type Filtro } from "./_filtro";
+import { MercadoForm } from "./_mercado";
 import type { PerfilAprendido } from "@/lib/prospecting/aprendizado";
 import type { ProspectingAgentSetupInput } from "@/lib/prospecting/agent-setup-schema";
 
@@ -110,6 +111,8 @@ export function ProspectingClient() {
   const [limit, setLimit] = useState(20);
   const [budget, setBudget] = useState(1);
   const [enrich, setEnrich] = useState(true);
+  // De onde vêm as empresas: a busca paga no Maps ou o mercado da Receita (`_mercado.tsx`).
+  const [fonte, setFonte] = useState<"maps" | "mercado">("maps");
   const [campaignDrafts, setCampaignDrafts] = useState<Record<string, CampaignConfig>>({});
   const [manualCampaigns, setManualCampaigns] = useState<Record<string, boolean>>({});
   const [createdAgents, setCreatedAgents] = useState<{ id: string; name: string }[]>([]);
@@ -297,6 +300,39 @@ export function ProspectingClient() {
         <aside className="flex flex-col gap-5">
           <Card className="p-5">
             <h2 className="text-lg font-semibold">{t("1. Encontrar empresas")}</h2>
+            <div role="group" aria-label={t("De onde vêm as empresas")} className="mt-3 grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
+              <Button
+                type="button"
+                size="sm"
+                variant={fonte === "maps" ? "default" : "ghost"}
+                aria-pressed={fonte === "maps"}
+                onClick={() => setFonte("maps")}
+              >
+                {t("Google Maps")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={fonte === "mercado" ? "default" : "ghost"}
+                aria-pressed={fonte === "mercado"}
+                onClick={() => setFonte("mercado")}
+              >
+                {t("Mercado (Receita)")}
+              </Button>
+            </div>
+            {fonte === "mercado" ? (
+              <MercadoForm
+                busy={busy}
+                onCriar={async (body) => {
+                  const criada = await perform(
+                    { action: "market_campaign", ...body },
+                    t("Campanha criada com as empresas do mercado. Revise a lista e prepare a abordagem."),
+                  );
+                  if (criada) setSelected(null);
+                  return criada;
+                }}
+              />
+            ) : (
             <form
               className="mt-4 space-y-4"
               onSubmit={async (e) => {
@@ -407,6 +443,7 @@ export function ProspectingClient() {
                 {busy ? t("Aguarde…") : t("Buscar empresas")}
               </Button>
             </form>
+            )}
           </Card>
           <section>
             <h2 className="mb-3 text-sm font-semibold">{t("Suas campanhas")}</h2>

@@ -49,6 +49,13 @@ const PARES: Array<{
   simbolo: string;
 }> = [
   {
+    // Fork da Genuine (migration 9002): o porte da Receita na tabela do mercado.
+    tabela: "prospecting_market_companies",
+    coluna: "porte",
+    arquivo: "lib/prospecting/mercado/porte.ts",
+    simbolo: "PORTES_DO_MERCADO",
+  },
+  {
     tabela: "ad_platform_connections",
     coluna: "google_api",
     arquivo: "lib/plataformas-de-anuncio/types.ts",

@@ -11,6 +11,7 @@ import { ProspectingError } from "@/lib/prospecting/provider";
 import { prospectingInputSchema } from "@/lib/prospecting/schema";
 import { avaliarEmpresa, marcarReferencia } from "@/lib/prospecting/avaliacao";
 import { carregarPerfilAprendido } from "@/lib/prospecting/perfil-aprendido";
+import { criarCampanhaDoMercado } from "@/lib/prospecting/mercado/campanha";
 import {
   activateCampaign,
   configureCredential,
@@ -116,6 +117,8 @@ export async function POST(req: Request) {
     else if (body.action === "rate")
       result = await avaliarEmpresa(pool, org, auth.user.id, body);
     else if (body.action === "reference") result = await marcarReferencia(pool, org, body);
+    else if (body.action === "market_campaign")
+      result = await criarCampanhaDoMercado(pool, org, body.request_id, body);
     else if (body.action === "pause") {
       // Pause does not wait for the worker lock; the delivery guard sees it before sending.
       const changed = await pool.query(
@@ -151,7 +154,12 @@ export async function POST(req: Request) {
         return { resumed: true };
       });
     }
-    const resourceId = "id" in body ? body.id : null;
+    const resourceId =
+      "id" in body
+        ? body.id
+        : body.action === "market_campaign"
+          ? ((result as { id?: string }).id ?? null)
+          : null;
     await audit({
       action: "prospecting.changed",
       organizationId: org,
@@ -162,6 +170,7 @@ export async function POST(req: Request) {
         operation: body.action,
         ...(body.action === "rate" ? { nota: body.nota } : {}),
         ...(body.action === "reference" ? { ativa: body.ativa } : {}),
+        ...(body.action === "market_campaign" ? { limite: body.limite } : {}),
       },
       requestId,
     });

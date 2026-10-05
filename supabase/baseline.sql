@@ -45434,3 +45434,58 @@ comment on column public.prospecting_campaigns.referencia_em is
   'Quando a campanha foi marcada como referência do perfil ideal. NULL = não é referência.';
 comment on column public.prospecting_campaigns.referencia_motivo is
   'Por que a campanha é referência do perfil ideal, escrito por quem marcou (opcional).';
+
+-- ---- mercado: empresas da base pública da Receita (migration 9002, fork da Genuine) ----
+-- 9002: migration do fork `admgenuine/DeskcommCRM`. Empresas da base pública de
+-- CNPJ no recorte da prospecção, escritas só pela rotina
+-- `.github/workflows/genuine-mercado.yml` e lidas só pelo servidor. Sem
+-- organization_id por ser dado público de referência da instalação; o que é da
+-- organização continua em `prospecting_candidates`. Texto idêntico ao da
+-- migration. Aditiva e idempotente; sem função nova (nada a revogar de anon).
+create table if not exists public.prospecting_market_companies (
+  cnpj text primary key check (cnpj ~ '^[0-9]{14}$'),
+  cnpj_basico text not null check (cnpj_basico ~ '^[0-9]{8}$'),
+  matriz boolean not null,
+  razao_social text not null,
+  nome_fantasia text,
+  data_inicio date,
+  cnae_principal text not null,
+  cnae_principal_descricao text,
+  cnaes_secundarios text[] not null default '{}',
+  recorte_pela_principal boolean not null,
+  uf text not null,
+  municipio_codigo text,
+  municipio text,
+  bairro text,
+  cep text,
+  endereco text,
+  telefone1 text,
+  telefone2 text,
+  email text,
+  porte text not null,
+  capital_social_centavos bigint,
+  natureza_juridica text,
+  opcao_simples boolean,
+  referencia text not null check (referencia ~ '^[0-9]{4}-[0-9]{2}$'),
+  atualizado_em timestamptz not null default now()
+);
+
+alter table public.prospecting_market_companies
+  drop constraint if exists prospecting_market_companies_porte_check;
+alter table public.prospecting_market_companies
+  add constraint prospecting_market_companies_porte_check
+  check (porte in ('ME', 'EPP', 'DEMAIS', 'NAO_INFORMADO'));
+
+create index if not exists prospecting_market_uf_municipio
+  on public.prospecting_market_companies (uf, municipio);
+create index if not exists prospecting_market_cnae_principal
+  on public.prospecting_market_companies (cnae_principal);
+
+comment on table public.prospecting_market_companies is
+  'Empresas da base pública de CNPJ da Receita no recorte da prospecção (fork da Genuine). Escrita só pela rotina de importação; leitura só pelo servidor.';
+
+alter table public.prospecting_market_companies enable row level security;
+revoke all on public.prospecting_market_companies from public, anon, authenticated;
+grant all on public.prospecting_market_companies to service_role;
+
+notify pgrst, 'reload schema';

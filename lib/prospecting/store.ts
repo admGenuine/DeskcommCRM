@@ -19,8 +19,8 @@ import {
 } from "./schema";
 import { avaliarCandidato, motivoDeRecusaDoLegado } from "./aceite";
 import { alcanceDaBusca, mesmaBusca, motivoDeFaltarem } from "./busca-repetida";
-import { recusaAprendida } from "./aprendizado";
-import { carregarPerfilAprendido } from "./perfil-aprendido";
+import { inserirCandidato, reguaDaEntrada } from "./entrada";
+import type { FiltrosDoMercado } from "./mercado/filtros";
 import {
   ProspectingError,
   providerRequest,
@@ -34,7 +34,12 @@ import {
  * quantos lugares foram pedidos ao provedor (`busca-repetida.ts`). Campanha de
  * antes desta versão não tem `alcance`, e vale o limite.
  */
-export type BuscaGravada = SearchInput & { alcance?: number };
+export type BuscaGravada = SearchInput & {
+  alcance?: number;
+  /** Campanha da aba Mercado (`mercado/campanha.ts`): sem busca paga, com os filtros usados. */
+  fonte?: "mercado";
+  filtros?: FiltrosDoMercado;
+};
 
 export interface Campaign {
   id: string;
@@ -49,6 +54,8 @@ export interface Campaign {
   next_send_at: Date;
   created_at: Date;
   error: string | null;
+  result_count: number;
+  skipped_count: number;
 }
 export interface Candidate {
   id: string;
@@ -243,18 +250,6 @@ export async function synchronizeSearch(db: pg.PoolClient, admin: SupabaseClient
     return;
   }
   const prospects = items.map(normalizeProspect).filter((p): p is Prospect => p !== null);
-  // Quem já está no CRM sai NA ENTRADA, com o motivo, e não só na hora de abordar.
-  const variantes = [...new Set(prospects.flatMap((p) => (p.phone ? phoneLookupVariants(p.phone) : [])))];
-  const noCrm = new Set(
-    variantes.length
-      ? (
-          await db.query<{ phone_number: string }>(
-            "select phone_number from contacts where organization_id=$1 and phone_number=any($2::text[])",
-            [c.organization_id, variantes],
-          )
-        ).rows.map((r) => r.phone_number)
-      : [],
-  );
   // Empresa que já está em OUTRA campanha não entra de novo (o banco garante:
   // um lugar e um telefone por organização). Antes ela sumia no número de
   // "repetidos ou indisponíveis", e quem refazia a mesma busca via 0 empresas
@@ -288,32 +283,15 @@ export async function synchronizeSearch(db: pg.PoolClient, admin: SupabaseClient
     tetoUsd: c.search.budget_usd,
     interrompida,
   });
-  // O gosto do dono (avaliações e campanhas de referência): categoria que ele
-  // recusou repetidas vezes sai na entrada, com o motivo (`aprendizado.ts`).
-  const perfil = await carregarPerfilAprendido(db, c.organization_id);
+  // Quem já está no CRM e o gosto aprendido do dono saem NA ENTRADA, com o
+  // motivo, e não só na hora de abordar (`entrada.ts`).
+  const motivoDaEntrada = await reguaDaEntrada(db, c.organization_id, aproveitados);
   let inserted = 0;
   await db.query("begin");
   try {
     for (const p of aproveitados) {
-      const veredito = avaliarCandidato(p, c.search);
-      const motivo = !veredito.aprovado
-        ? veredito.motivo
-        : p.phone && phoneLookupVariants(p.phone).some((v) => noCrm.has(v))
-          ? "Já está no CRM."
-          : recusaAprendida(perfil, p.category);
-      const result = await db.query(
-        "insert into prospecting_candidates(organization_id,campaign_id,place_id,phone,data,status,error) values($1,$2,$3,$4,$5,$6,$7) on conflict do nothing",
-        [
-          c.organization_id,
-          c.id,
-          p.key,
-          p.phone,
-          { ...p, aceite: motivo ? { aprovado: false, motivo } : { aprovado: true } },
-          motivo ? "skipped" : "new",
-          motivo,
-        ],
-      );
-      inserted += result.rowCount ?? 0;
+      const motivo = motivoDaEntrada(p, avaliarCandidato(p, c.search));
+      inserted += await inserirCandidato(db, c.organization_id, c.id, p, motivo);
     }
     await db.query(
       "update prospecting_campaigns set search_status='succeeded',dataset_id=$3,cost_usd=$4,result_count=$5,skipped_count=$6,error=$7,updated_at=now() where organization_id=$1 and id=$2",

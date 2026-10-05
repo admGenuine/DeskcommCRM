@@ -172,7 +172,7 @@ Separe a correção de telefone num commit isolado: quero considerar enviá-la c
 
 ### Pedidos de 02/10/2026, entre a Fase 1 e a Fase 2
 
-Decididos pelo dono: recorte inicial **PR e SC, só alimentos** (divisão 10 do CNAE, sem 1091-1/02, sem bebidas); vizinhas do mesmo estado e distribuidoras entram. Porte mínimo ainda em aberto.
+Decididos pelo dono: recorte inicial **PR e SC, só alimentos** (divisão 10 do CNAE, sem 1091-1/02, sem bebidas); vizinhas do mesmo estado e distribuidoras entram. **Porte (05/10/2026): faturamento acima de cerca de R$ 100 mil por ano**, ou seja, sem MEI (ME, EPP e demais entram). A Receita não publica faturamento: o MEI sai pelo arquivo do Simples, e o porte declarado fica como filtro na tela. A Presto Alimentos (CNPJ 19.518.682/0001-57, fabricante, CNAE 1099-6/99, Palhoça/SC) é a referência de perfil.
 
 1. **Busca repetida traz empresas novas.** Refazer o mesmo termo e local não pode devolver as mesmas empresas. Como o provedor não aceita lista de exclusão, a busca nova pede mais fundo no Maps (limite + empresas já conhecidas daquela busca, até 300 lugares) e fica com as primeiras novas. O teto de gasto continua limitando o custo, e a campanha diz quando foi ele, ou o fim do Maps, que impediu de achar todas. Código em `lib/prospecting/busca-repetida.ts`.
 2. **Classificar empresas** (gostei / não gostei, com motivo), para a prospecção aprender o gosto do dono. A avaliação fica no `data` do candidato (a anonimização da LGPD alcança). "Não gostei" tira da fila quem ainda não foi abordado; "gostei" devolve à fila quem a régua de perfil recusou, enquanto a campanha é rascunho. Categoria com 2 ou mais "não gostei" e nenhum "gostei" passa a ser recusada na entrada das buscas seguintes, com o motivo. Código em `lib/prospecting/aprendizado.ts`. Alimenta o score da Fase 4.
@@ -181,6 +181,8 @@ Decididos pelo dono: recorte inicial **PR e SC, só alimentos** (divisão 10 do 
 Ressalva: os candidatos têm prazo de 365 dias (`fn_expurgar_prospeccao_vencida`), e as avaliações vão junto. Guardar o perfil aprendido de forma permanente fica para a Fase 4.
 
 ### Fase 2: mercado inteiro e busca por CNAE (etapas 1 e 2)
+
+**Andamento:** a importação está em `.github/workflows/genuine-mercado.yml` (filtro em `scripts/genuine/mercado/`, tabela `prospecting_market_companies` da migration 9002). A aba Mercado e o "levar para campanha" vêm na entrega seguinte.
 
 Importação da base de CNPJ só para o recorte escolhido, rotina de atualização mensal e busca por CNAE, UF, município, porte e idade.
 

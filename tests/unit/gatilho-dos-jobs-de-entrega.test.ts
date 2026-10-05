@@ -230,6 +230,13 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
       "Este é o check obrigatório `e2e`, a fachada da matriz. Precisa de `always()` para " +
       "ler o resultado das partes e reprovar `skipped`.",
   },
+  "genuine-mercado.yml::mercado": {
+    condicao: null,
+    efeito:
+      "Fork da Genuine: este job baixa a base pública da Receita, filtra o mercado da " +
+      "prospecção e carrega no banco na tag de versão ou por workflow_dispatch com `gravar`. " +
+      "Sem `if:` na altura do job: a gravação é decidida no passo, e o filtro roda sempre que é chamado.",
+  },
   "perf.yml::build-and-size": {
     condicao: null,
     efeito: "Este é o check obrigatório `build-and-size` (`pnpm build` em Node 22).",
