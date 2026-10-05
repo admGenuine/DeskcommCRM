@@ -12,11 +12,19 @@ O Nextcloud expõe compartilhamento público por mais de um caminho de WebDAV, e
 de fora não dá para saber qual a instalação habilitou: tenta-se cada um, na
 ordem, e vale o primeiro que responde 207 (Multi-Status).
 
-Saída (JSON na saída padrão): o mês escolhido, a URL da pasta dele, o usuário
-para autenticação básica (vazio quando o caminho não pede) e os .zip da pasta.
+E o servidor da Receita recusa conexão de fora do Brasil. Medido no runner do
+GitHub (PR #9): "Connection reset by peer" em todos os caminhos, com qualquer
+User-Agent, enquanto o espelho da Casa dos Dados (uma cópia mensal dos mesmos
+arquivos, numa pasta HTML comum) respondeu 200. Por isso há duas fontes, na
+ordem: a Receita, que é a origem, e o espelho, quando a Receita não atende.
+Na VPS, que fica no Brasil, a Receita responde.
 
-  python3 listar_receita.py               # o mês mais recente
+Saída (JSON na saída padrão): a fonte usada, o mês escolhido, a URL da pasta
+dele, o usuário para autenticação básica (vazio quando não pede) e os .zip.
+
+  python3 listar_receita.py                     # o mês mais recente
   python3 listar_receita.py --mes 2026-09
+  python3 listar_receita.py --fonte espelho
 
 Só biblioteca padrão.
 """
@@ -49,6 +57,12 @@ PROPFIND = (
 )
 
 MES = re.compile(r"^\d{4}-\d{2}$")
+
+ESPELHO = os.environ.get(
+    "RECEITA_ESPELHO", "https://dados-abertos-rf-cnpj.casadosdados.com.br/arquivos/"
+)
+PASTA_DO_ESPELHO = re.compile(r'href="(\d{4}-\d{2}-\d{2})/"')
+ZIP_DO_ESPELHO = re.compile(r'href="([^"/?]+\.zip)"', re.IGNORECASE)
 
 
 def itens_do_propfind(xml: bytes) -> list[tuple[str, bool]]:
@@ -103,22 +117,64 @@ def raiz() -> tuple[str, str | None, list[tuple[str, bool]]]:
     raise SystemExit("Nenhum caminho de WebDAV da Receita respondeu: " + " ; ".join(erros))
 
 
-def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser()
-    p.add_argument("--mes", default="", help="AAAA-MM; vazio = o mais recente com .zip")
-    a = p.parse_args(argv)
-
+def da_receita(mes_pedido: str) -> dict:
     url, usuario, itens = raiz()
-    candidatos = [a.mes] if a.mes else meses(itens)
+    candidatos = [mes_pedido] if mes_pedido else meses(itens)
     if not candidatos:
         raise SystemExit(f"Não há pasta de mês em {url}: {itens[:20]}")
     for mes in candidatos:
         pasta = f"{url}{mes}/"
         arquivos = zips(itens_do_propfind(propfind(pasta, usuario)))
         if arquivos:
-            print(json.dumps({"mes": mes, "url": pasta, "usuario": usuario or "", "arquivos": arquivos}))
-            return 0
+            return {"fonte": "receita", "mes": mes, "url": pasta, "usuario": usuario or "", "arquivos": arquivos}
     raise SystemExit(f"Nenhuma pasta de mês com .zip em {url} (tentei {candidatos[:3]}).")
+
+
+def pastas_do_espelho(html: str) -> list[str]:
+    """Pastas AAAA-MM-DD do índice do espelho, da mais recente para a mais antiga."""
+    return sorted(set(PASTA_DO_ESPELHO.findall(html)), reverse=True)
+
+
+def zips_do_espelho(html: str) -> list[str]:
+    return sorted(set(ZIP_DO_ESPELHO.findall(html)))
+
+
+def baixar_texto(url: str) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": "genuine-mercado"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return resp.read().decode("utf-8", errors="replace")
+
+
+def do_espelho(mes_pedido: str) -> dict:
+    pastas = pastas_do_espelho(baixar_texto(ESPELHO))
+    if mes_pedido:
+        pastas = [p for p in pastas if p.startswith(mes_pedido)]
+    for pasta in pastas:
+        url = f"{ESPELHO}{pasta}/"
+        arquivos = zips_do_espelho(baixar_texto(url))
+        if arquivos:
+            return {"fonte": "espelho", "mes": pasta[:7], "url": url, "usuario": "", "arquivos": arquivos}
+    raise SystemExit(f"Nenhuma pasta com .zip no espelho {ESPELHO} (mês pedido: {mes_pedido or 'o mais recente'}).")
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser()
+    p.add_argument("--mes", default="", help="AAAA-MM; vazio = o mais recente com .zip")
+    p.add_argument("--fonte", choices=["auto", "receita", "espelho"], default="auto")
+    a = p.parse_args(argv)
+
+    if a.fonte == "espelho":
+        resultado = do_espelho(a.mes)
+    else:
+        try:
+            resultado = da_receita(a.mes)
+        except (SystemExit, Exception) as e:  # noqa: BLE001
+            if a.fonte == "receita":
+                raise
+            print(f"A Receita não atendeu ({e}); usando o espelho.", file=sys.stderr)
+            resultado = do_espelho(a.mes)
+    print(json.dumps(resultado))
+    return 0
 
 
 if __name__ == "__main__":
