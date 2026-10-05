@@ -89,6 +89,17 @@ COLUNAS_SAIDA = [
 ]
 
 
+def codificacao(inicio: bytes) -> str:
+    """A documentada é latin-1; depois da mudança de infraestrutura da Receita
+    (fevereiro de 2026) alguns arquivos vieram com BOM de UTF-16 ou UTF-8.
+    Decide-se pelo começo do arquivo em vez de supor."""
+    if inicio.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return "utf-16"
+    if inicio.startswith(b"\xef\xbb\xbf"):
+        return "utf-8-sig"
+    return "latin-1"
+
+
 def linhas_do_zip(caminho: str) -> Iterator[list[str]]:
     """Cada linha de cada arquivo dentro do zip, já separada em colunas.
 
@@ -97,8 +108,10 @@ def linhas_do_zip(caminho: str) -> Iterator[list[str]]:
     """
     with zipfile.ZipFile(caminho) as z:
         for nome in z.namelist():
+            with z.open(nome) as espiar:
+                inicio = espiar.read(4)
             with z.open(nome) as bruto:
-                texto = io.TextIOWrapper(bruto, encoding="latin-1", newline="")
+                texto = io.TextIOWrapper(bruto, encoding=codificacao(inicio), newline="", errors="replace")
                 yield from csv.reader(
                     (linha.replace("\x00", "") for linha in texto),
                     delimiter=";",

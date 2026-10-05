@@ -65,7 +65,9 @@ def simples(basico: str, opcao_simples: str = "N", mei: str = "N") -> list[str]:
     return [basico, opcao_simples, "", "", mei, "", ""]
 
 
-def gravar_zip(pasta: str, nome: str, linhas: list[list[str]], *, nul: bool = False) -> None:
+def gravar_zip(
+    pasta: str, nome: str, linhas: list[list[str]], *, nul: bool = False, codificacao: str = "latin-1"
+) -> None:
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";", quotechar='"', quoting=csv.QUOTE_ALL, lineterminator="\n")
     for linha in linhas:
@@ -74,7 +76,7 @@ def gravar_zip(pasta: str, nome: str, linhas: list[list[str]], *, nul: bool = Fa
     if nul:
         texto = texto.replace("CENTRO", "CEN\x00TRO", 1)
     with zipfile.ZipFile(os.path.join(pasta, nome), "w") as z:
-        z.writestr(nome.replace(".zip", ".CSV"), texto.encode("latin-1"))
+        z.writestr(nome.replace(".zip", ".CSV"), texto.encode(codificacao))
 
 
 class FiltroDaReceita(unittest.TestCase):
@@ -182,6 +184,13 @@ class FiltroDaReceita(unittest.TestCase):
         saida, resumo = self.rodar(pasta)
         self.assertEqual(saida, [])
         self.assertEqual(resumo["sem_linha_de_empresa"], 1)
+
+    def test_arquivo_com_bom_de_utf16_ou_utf8_e_lido_pela_codificacao_certa(self):
+        for codificacao in ("utf-16", "utf-8-sig"):
+            pasta = self.montar([estabelecimento("00000013")], [], [])
+            gravar_zip(pasta, "Empresas0.zip", [empresa("00000013", "FÁBRICA DE PÃES LTDA")], codificacao=codificacao)
+            saida, _ = self.rodar(pasta)
+            self.assertEqual(saida[0]["razao_social"], "FÁBRICA DE PÃES LTDA", codificacao)
 
     def test_telefone_sem_ddd_ou_sem_numero_fica_vazio(self):
         self.assertEqual(fr.telefone("", "32860000"), "")
