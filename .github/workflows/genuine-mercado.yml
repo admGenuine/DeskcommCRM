@@ -134,6 +134,11 @@ jobs:
           for m in r["top_municipios"]:
               print(f"| {m['municipio']} | {m['empresas']} |")
           PY
+          # Os números principais também como aviso do job: aparecem na lista de
+          # checks do PR e na API, sem abrir o resumo.
+          jq -r '"::notice::Mercado \(.referencia): \(.no_recorte) empresas (\(.pela_principal) pela atividade principal, \(.matrizes) matrizes, \(.com_telefone) com telefone, \(.com_email) com e-mail). Por UF: \(.por_uf | to_entries | map("\(.key) \(.value)") | join(", ")). Por porte: \(.por_porte | to_entries | map("\(.key) \(.value)") | join(", ")). MEI removidos: \(.mei_removidos)."' saida/resumo.json
+          jq -r '"::notice::Atividades: \(.top_cnae_principal | map("\(.cnae) \(.descricao) \(.empresas)") | join(" | "))"' saida/resumo.json
+          jq -r '"::notice::Municípios: \(.top_municipios | map("\(.municipio) \(.empresas)") | join(" | "))"' saida/resumo.json
           gzip -k saida/mercado.csv
           ls -la saida
 
