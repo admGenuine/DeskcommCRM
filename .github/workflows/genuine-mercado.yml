@@ -53,6 +53,23 @@ jobs:
       - name: Testes do filtro
         run: python3 -m unittest discover -s scripts/genuine/mercado -v
 
+      - name: Diagnóstico de acesso (temporário)
+        continue-on-error: true
+        run: |
+          for alvo in "GET https://arquivos.receitafederal.gov.br/" \
+                      "GET https://arquivos.receitafederal.gov.br/index.php/s/YggdBLfdninEJX9" \
+                      "PROPFIND https://arquivos.receitafederal.gov.br/public.php/webdav/" \
+                      "GET https://dados-abertos-rf-cnpj.casadosdados.com.br/" \
+                      "GET https://dadosabertos.rfb.gov.br/CNPJ/"; do
+            metodo="${alvo%% *}"; url="${alvo#* }"
+            for ua in "curl" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128 Safari/537.36"; do
+              r=$(curl -sS -m 30 -X "$metodo" -A "$ua" -u "YggdBLfdninEJX9:" -H "Depth: 1" -o /tmp/corpo \
+                   -w '%{http_code} %{size_download}B ip=%{remote_ip}' "$url" 2>&1 | tr '\n' ' ')
+              echo "::warning::$metodo $url ua=${ua:0:7} -> $r | $(head -c 300 /tmp/corpo 2>/dev/null | tr '\n' ' ')"
+            done
+          done
+          curl -sS -m 20 https://ipinfo.io/json | tr '\n' ' ' | sed 's/^/::warning::runner /'
+
       - name: Onde está a base
         id: fonte
         env:
