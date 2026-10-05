@@ -234,8 +234,8 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
     condicao: null,
     efeito:
       "Fork da Genuine: este job baixa a base pública da Receita, filtra o mercado da " +
-      "prospecção e, só por workflow_dispatch com `gravar`, carrega no banco. Sem `if:` " +
-      "na altura do job: a gravação é decidida no passo, e o filtro roda sempre que é chamado.",
+      "prospecção e carrega no banco na tag de versão ou por workflow_dispatch com `gravar`. " +
+      "Sem `if:` na altura do job: a gravação é decidida no passo, e o filtro roda sempre que é chamado.",
   },
   "perf.yml::build-and-size": {
     condicao: null,

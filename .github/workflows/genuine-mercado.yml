@@ -7,13 +7,17 @@
 # a VPS não comporta baixar nem processar; o runner do GitHub sim, e só o
 # recorte (alguns MB) chega ao banco.
 #
-# Três jeitos de rodar, e só um grava:
+# Quatro jeitos de rodar; dois gravam:
 #   - pull_request que mexe na importação: baixa e filtra a base INTEIRA, publica
 #     o resumo e o CSV como artefato, e não grava nada. É o teste de verdade do
 #     filtro contra a base real.
 #   - workflow_dispatch sem `gravar`: igual, para medir antes de gravar.
 #   - workflow_dispatch com `gravar` na `producao`: além disso, carrega no banco
 #     do segredo MERCADO_DB_URL (connection string do Supabase), numa transação.
+#   - tag de versão (a release que o dono publica): filtra e grava, se o segredo
+#     existir. É o que mantém o mercado em dia sem botão: o GitHub só mostra o
+#     "Run workflow" de workflow que está no ramo padrão, e o padrão do fork é a
+#     `main`, espelho do original, onde esta rotina não mora.
 name: genuine-mercado
 
 on:
@@ -27,6 +31,8 @@ on:
         description: "Mês da base (AAAA-MM). Vazio = o mais recente publicado"
         type: string
         default: ""
+  push:
+    tags: ["v*"]
   pull_request:
     branches: [producao]
     paths:
@@ -151,12 +157,18 @@ jobs:
           retention-days: 30
 
       - name: Gravar no banco
-        if: github.event_name == 'workflow_dispatch' && inputs.gravar && github.ref == 'refs/heads/producao'
+        if: (github.event_name == 'workflow_dispatch' && inputs.gravar && github.ref == 'refs/heads/producao') || github.event_name == 'push'
         env:
           MERCADO_DB_URL: ${{ secrets.MERCADO_DB_URL }}
         run: |
           set -euo pipefail
           if [ -z "${MERCADO_DB_URL:-}" ]; then
+            if [ "$GITHUB_EVENT_NAME" = push ]; then
+              # Na release, a falta do segredo não reprova nada: a base foi filtrada
+              # (o artefato está aí) e só não foi gravada.
+              echo "::notice::Segredo MERCADO_DB_URL não configurado: o mercado foi filtrado mas não gravado."
+              exit 0
+            fi
             echo "::error::Falta o segredo MERCADO_DB_URL (connection string do Supabase)."
             exit 1
           fi
