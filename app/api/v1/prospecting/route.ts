@@ -13,6 +13,7 @@ import { prospectingInputSchema } from "@/lib/prospecting/schema";
 import { avaliarEmpresa, marcarReferencia } from "@/lib/prospecting/avaliacao";
 import { carregarPerfilAprendido } from "@/lib/prospecting/perfil-aprendido";
 import { criarCampanhaDoMercado } from "@/lib/prospecting/mercado/campanha";
+import { pedirAnaliseDaCampanha } from "@/lib/prospecting/sinais/fila";
 import {
   activateCampaign,
   adjustPace,
@@ -159,6 +160,10 @@ export async function POST(req: NextRequest) {
     } else if (body.action === "market_campaign") {
       result = await criarCampanhaDoMercado(pool, org, body.request_id, body);
       auditMetadata = { operation: body.action, limite: body.limite };
+    } else if (body.action === "analyze_sites") {
+      const pedido = await pedirAnaliseDaCampanha(pool, org, body.id);
+      result = pedido;
+      auditMetadata = { operation: body.action, pedidas: pedido.pedidas };
     } else if (body.action === "pause") {
       // Pause does not wait for the worker lock; the delivery guard sees it before sending.
       const changed = await pool.query(

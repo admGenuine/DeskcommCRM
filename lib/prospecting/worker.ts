@@ -19,6 +19,7 @@ import { decidirPreGoLiveDoCanalViaSupabase } from "@/lib/ai/elegibilidade/consu
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { conferirWhatsappDoCandidato } from "./aceite/whatsapp";
+import { analisarSitesPendentes } from "./sinais/fila";
 import { assertProspectingDelivery } from "./guard";
 import { campaignConfigSchema } from "./schema";
 import { ProspectingError } from "./provider";
@@ -510,5 +511,19 @@ export async function tickProspecting(pool: pg.Pool, admin: SupabaseClient) {
         });
     }
   }
-  return { processed };
+  // Fork da Genuine, Fase 3: os sites pedidos para análise (`sinais/fila.ts`).
+  // Fora do lock da organização, porque ler sites demora e a tela não pode
+  // esperar; até 200s desde o começo da rodada, abaixo do teto do agendador.
+  let analisadas = 0;
+  try {
+    analisadas = await analisarSitesPendentes(
+      pool,
+      Math.min(Date.now() + 50_000, deadline + 20_000),
+    );
+  } catch (error) {
+    logger.error("[prospecting] rodada de análise de sites falhou", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return { processed, analisadas };
 }

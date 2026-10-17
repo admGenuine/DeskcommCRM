@@ -20,6 +20,7 @@ import {
 import { alcanceDaBusca, mesmaBusca } from "@/lib/prospecting/busca-repetida";
 import { ProspectingAgentBuilder, type CreatedProspectingAgent } from "./_create-agent";
 import { AprendizadoCard, AvaliacaoDaEmpresa, ReferenciaDaCampanha } from "./_avaliacao";
+import { AnaliseDaCampanha, SinaisDaEmpresa } from "./_sinais";
 import { FILTROS, passaNoFiltro, type Filtro } from "./_filtro";
 import { MercadoForm } from "./_mercado";
 import type { PerfilAprendido } from "@/lib/prospecting/aprendizado";
@@ -1281,6 +1282,24 @@ export function ProspectingClient() {
                         </div>
                       )}
                     </div>
+                    {buscaConcluida && candidates.length > 0 && (
+                      <div className="mt-3">
+                        <AnaliseDaCampanha
+                          candidates={candidates}
+                          busy={busy}
+                          onAnalisar={() =>
+                            campaign
+                              ? perform(
+                                  { action: "analyze_sites", id: campaign.id },
+                                  t(
+                                    "Análise dos sites pedida. Os sinais aparecem conforme cada site é lido.",
+                                  ),
+                                )
+                              : Promise.resolve(false)
+                          }
+                        />
+                      </div>
+                    )}
                     {(filtro.tipo !== "todos" || filtro.motivo) && (
                       <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md bg-muted p-3 text-sm">
                         <span>
@@ -1325,6 +1344,7 @@ export function ProspectingClient() {
                           <th className="p-4">{t("Informações")}</th>
                           <th className="p-4">{t("Progresso")}</th>
                           <th className="p-4">{t("Conversa")}</th>
+                          <th className="p-4">{t("Sinais do site")}</th>
                           <th className="p-4">{t("Sua avaliação")}</th>
                         </tr>
                       </thead>
@@ -1332,7 +1352,7 @@ export function ProspectingClient() {
                         {visiveis.length === 0 && (
                           <tr>
                             <td
-                              colSpan={canSelect ? 6 : 5}
+                              colSpan={canSelect ? 7 : 6}
                               className="p-6 text-center text-sm text-muted-foreground"
                             >
                               {t("Nenhuma empresa neste filtro.")}
@@ -1402,6 +1422,9 @@ export function ProspectingClient() {
                                   {t("Abrir no Inbox")}
                                 </Link>
                               )}
+                            </td>
+                            <td className="p-4 align-top">
+                              <SinaisDaEmpresa analise={c.data.analise} />
                             </td>
                             <td className="p-4 align-top">
                               <AvaliacaoDaEmpresa

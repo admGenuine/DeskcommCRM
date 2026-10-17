@@ -4,6 +4,7 @@ import { ufDoLugar } from "./aceite/regiao";
 import { avaliarTelefoneBR } from "./aceite/telefone";
 import { NOTAS, type Avaliacao } from "./aprendizado";
 import { filtrosDoMercadoSchema } from "./mercado/filtros";
+import type { Analise } from "./sinais/tipos";
 /**
  * Os dois números do RITMO da campanha, com os mesmos limites no início e no
  * ajuste. Moram aqui, uma vez, porque o ajuste de uma campanha pausada
@@ -112,6 +113,8 @@ export const prospectingInputSchema = z.discriminatedUnion("action", [
     })
     .strict(),
   z.object({ action: z.literal("discard_unselected"), id: z.string().uuid() }).strict(),
+  // Fork da Genuine: pede a análise dos sites das empresas da campanha (`sinais/fila.ts`).
+  z.object({ action: z.literal("analyze_sites"), id: z.string().uuid() }).strict(),
 ]);
 export type CampaignConfig = z.infer<typeof campaignConfigSchema>;
 export type CampaignPace = Pick<CampaignConfig, "daily_limit" | "interval_minutes">;
@@ -152,6 +155,8 @@ export interface Prospect {
   aceite?: { aprovado: boolean; motivo?: string };
   /** A avaliação do dono ("gostei" / "não gostei"), ausente até ele avaliar. */
   avaliacao?: Avaliacao;
+  /** Sinais lidos do site da empresa (`sinais/`, Fase 3 do fork). */
+  analise?: Analise;
   /** De onde a empresa veio; ausente = busca do Maps. */
   fonte?: "mercado";
   /** Do mercado (base da Receita): CNPJ de 14 dígitos, razão social e porte declarado. */
