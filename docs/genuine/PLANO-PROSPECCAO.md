@@ -198,6 +198,25 @@ Restrições de infraestrutura que você precisa respeitar:
 
 Cascata de fontes, cache, livro-razão de custo e sinais com prova.
 
+**3a, sem custo (17/10/2026).** Código em `lib/prospecting/sinais/`. O botão "Analisar sites" da campanha põe as empresas na fila; o worker de prospecção lê até 4 por vez, fora do lock da organização.
+
+- **Site:** o do Maps; sem ele, o domínio do e-mail da Receita, desde que não seja provedor gratuito. O site vindo do e-mail só vale se citar o nome da empresa e não for de contabilidade, porque o e-mail da Receita costuma ser o do contador.
+- **Leitura:** home mais até 3 páginas internas (parceria e vagas primeiro, depois "onde comprar", depois "sobre"). Usa as guardas de saída da casa: só endereço público, IP fixado na conexão, teto de tamanho e de tempo.
+- **Sinais com prova:**
+  - "seja um distribuidor" ou "representante";
+  - vagas comerciais (com o cargo, não só "trabalhe conosco");
+  - SIF, ou SIE e SIM;
+  - varejo (marketplace, rede de supermercado, "onde comprar");
+  - pixel da Meta, tag do Google Ads, ou nenhum dos dois (só afirmado sem o Gerenciador de Tags);
+  - site sem cadeado;
+  - rodapé com ano antigo;
+  - sem site;
+  - site fora do ar.
+- **Perfil:** Instagram, Facebook e LinkedIn achados no site.
+- **Onde fica gravado:** em `prospecting_candidates.data.analise`, válida por 180 dias. Sai junto na anonimização da LGPD, que reescreve o `data`. Sem migration.
+
+**3b, com custo (a decidir):** leitura por IA dos sites para os sinais ambíguos, e o Maps para as empresas do Mercado sem site. Precisa de teto de gasto definido pelo dono antes.
+
 ### Fase 4: score e aprovação (etapas 5 e 6)
 
 Score explicável por dimensão e tela de revisão com corte por nota ou top N.

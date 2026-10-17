@@ -49,6 +49,7 @@ A prospecção é o módulo que o fork mais mexe, e o original também evolui ne
 | `lib/prospecting/worker.ts` | A checagem "tem WhatsApp?" do fork vem ANTES do `prepararCandidatoNoEnvio` do original: número sem WhatsApp não cria contato nem negócio no modo `on_send` |
 | `app/api/v1/prospecting/route.ts` | As ações do fork (`rate`, `reference`, `market_campaign`) usam o `auditMetadata` e o `resolveAuthDual` do original, e ficam fechadas ao token (`ACOES_ABERTAS_AO_TOKEN`) |
 | `app/app/prospecting/_client.tsx` | Os contadores-filtro do fork somam com a seleção do original: a lista visível esconde as desmarcadas (original) e aplica o filtro do contador (fork) |
+| `lib/prospecting/worker.ts`, fim de `tickProspecting` | A rodada da análise de sites do fork (`sinais/fila.ts`) roda depois do laço das organizações, fora do lock, até 200s desde o começo da rodada |
 
 ### Migrations do fork
 
