@@ -17,6 +17,8 @@ export interface Pagina {
 export interface Link {
   href: string;
   texto: string;
+  /** O texto logo antes do link ("Desenvolvido por"), para saber em que papel ele aparece. */
+  contexto: string;
 }
 
 const ENTIDADES: Record<string, string> = {
@@ -86,7 +88,8 @@ export function linksDoHtml(html: string, base: string): Link[] {
     const titulo = /\b(?:title|aria-label)\s*=\s*"([^"]*)"/i.exec(atributos)?.[1] ?? "";
     const alt = /\balt\s*=\s*"([^"]*)"/i.exec(m[2] ?? "")?.[1] ?? "";
     const texto = textoDoHtml(m[2] ?? "") || titulo || alt;
-    links.push({ href: absoluto, texto: texto.slice(0, 160) });
+    const contexto = textoDoHtml(html.slice(Math.max(0, m.index - 400), m.index)).slice(-120);
+    links.push({ href: absoluto, texto: texto.slice(0, 160), contexto });
   }
   return links;
 }
@@ -141,11 +144,62 @@ export interface Extracao {
   perfil: Analise["perfil"];
 }
 
+function redeDoLink(l: Link, host: string): keyof Analise["perfil"] | null {
+  if (/(^|\.)instagram\.com$/.test(host) && /instagram\.com\/[a-z0-9_.]+/i.test(l.href))
+    return "instagram";
+  if (/(^|\.)facebook\.com$/.test(host) && !/sharer|share\.php|\/dialog\//.test(l.href))
+    return "facebook";
+  if (/(^|\.)linkedin\.com$/.test(host) && !/shareArticle|\/share/i.test(l.href)) return "linkedin";
+  return null;
+}
+
+/** O nome do perfil no endereço: "terrabrancomidia" em instagram.com/terrabrancomidia. */
+function nomeDoPerfil(href: string): string {
+  try {
+    const partes = new URL(href).pathname.split("/").filter(Boolean);
+    const nome = partes[0] === "company" || partes[0] === "in" ? partes[1] : partes[0];
+    return semAcento(nome ?? "").replace(/[^a-z0-9]/g, "");
+  } catch {
+    return "";
+  }
+}
+
+/** Link que credita quem fez o site: "Desenvolvido por", "Criado por", "Agência". */
+const CREDITO =
+  /(desenvolvid[oa]|criad[oa]|produzid[oa]|feit[oa]|projetad[oa]|criacao|desenvolvimento|agencia|design|powered|made)\s*(por|pela|pelo|by|com)?\s*:?\s*$/;
+
+/**
+ * O perfil que é DA EMPRESA, entre os que o site linka. Vale o que tem no nome
+ * uma palavra da empresa ou do domínio. Medido em 17/10/2026: o site de uma
+ * fábrica linkava só o Instagram da agência que o fez, no rodapé, e ele saía
+ * como o Instagram da fábrica. Sem palavra nenhuma para conferir (nome todo
+ * genérico e domínio curto), vale o único perfil linkado, se não for crédito.
+ */
+function perfilDaEmpresa(links: Link[], identidade: string[]): string | null {
+  const distintos = new Map<string, Link>();
+  for (const l of links) {
+    const nome = nomeDoPerfil(l.href);
+    if (nome && !distintos.has(nome)) distintos.set(nome, l);
+  }
+  for (const [nome, l] of distintos)
+    if (identidade.some((p) => nome.includes(p) || (nome.length >= 5 && p.includes(nome))))
+      return l.href;
+  if (identidade.length) return null;
+  const unicos = [...distintos.values()];
+  const unico = unicos.length === 1 ? unicos[0] : undefined;
+  return unico && !CREDITO.test(semAcento(unico.contexto)) ? unico.href : null;
+}
+
 /**
  * Os sinais de um conjunto de páginas do MESMO site. `anoAtual` entra de fora
- * para o teste não depender do relógio.
+ * para o teste não depender do relógio. `identidade`: as palavras do nome da
+ * empresa e do domínio, que decidem qual perfil de rede social é dela.
  */
-export function extrairSinais(paginas: Pagina[], anoAtual: number): Extracao {
+export function extrairSinais(
+  paginas: Pagina[],
+  anoAtual: number,
+  identidade: string[] = [],
+): Extracao {
   const sinais: Sinal[] = [];
   const ja = new Set<string>();
   const add = (s: Sinal) => {
@@ -153,7 +207,11 @@ export function extrairSinais(paginas: Pagina[], anoAtual: number): Extracao {
     ja.add(s.tipo);
     sinais.push(s);
   };
-  const perfil: Analise["perfil"] = { instagram: null, facebook: null, linkedin: null };
+  const perfis: Record<keyof Analise["perfil"], Link[]> = {
+    instagram: [],
+    facebook: [],
+    linkedin: [],
+  };
   let temPixel = false;
   let anoMaisRecente = 0;
 
@@ -179,19 +237,8 @@ export function extrairSinais(paginas: Pagina[], anoAtual: number): Extracao {
           evidencia: `Link "${l.texto}" no site.`.slice(0, 240),
           link: l.href,
         });
-      if (
-        !perfil.instagram &&
-        /(^|\.)instagram\.com$/.test(host) &&
-        /instagram\.com\/[a-z0-9_.]+/i.test(l.href)
-      )
-        perfil.instagram = l.href;
-      if (
-        !perfil.facebook &&
-        /(^|\.)facebook\.com$/.test(host) &&
-        !/sharer|share\.php/.test(l.href)
-      )
-        perfil.facebook = l.href;
-      if (!perfil.linkedin && /(^|\.)linkedin\.com$/.test(host)) perfil.linkedin = l.href;
+      const rede = redeDoLink(l, host);
+      if (rede) perfis[rede].push(l);
     }
 
     const chamada = primeiroAchado(CHAMADA_DE_DISTRIBUIDOR, textoNormal);
@@ -275,6 +322,11 @@ export function extrairSinais(paginas: Pagina[], anoAtual: number): Extracao {
         link: home.url,
       });
   }
+  const perfil: Analise["perfil"] = {
+    instagram: perfilDaEmpresa(perfis.instagram, identidade),
+    facebook: perfilDaEmpresa(perfis.facebook, identidade),
+    linkedin: perfilDaEmpresa(perfis.linkedin, identidade),
+  };
   return { sinais, perfil };
 }
 

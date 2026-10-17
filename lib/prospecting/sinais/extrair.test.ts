@@ -19,7 +19,7 @@ describe("texto e links do HTML", () => {
        <a title="Instagram" href="https://instagram.com/fabrica"><img src="i.png"></a>`,
       "https://www.fabrica.com.br/produtos/",
     );
-    expect(links).toEqual([
+    expect(links.map(({ href, texto }) => ({ href, texto }))).toEqual([
       { href: "https://www.fabrica.com.br/contato", texto: "Contato" },
       { href: "https://instagram.com/fabrica", texto: "Instagram" },
     ]);
@@ -112,12 +112,43 @@ describe("sinais com prova", () => {
         },
       ],
       ANO,
+      ["massas"],
     );
     expect(perfil).toEqual({
       instagram: "https://www.instagram.com/massas.x/",
       facebook: "https://www.facebook.com/massasx",
       linkedin: null,
     });
+  });
+
+  it("o Instagram da agência que fez o site não vira o da empresa", () => {
+    const pagina = {
+      url: "https://www.sweetsabor.com.br/",
+      html: `<footer>Desenvolvido por <a href="https://www.instagram.com/terrabrancomidia/">Terra Branco Mídia</a></footer>`,
+    };
+    // com o nome da empresa: o perfil precisa ter uma palavra dela
+    expect(
+      extrairSinais([pagina], ANO, ["sweet", "sabor", "sweetsabor"]).perfil.instagram,
+    ).toBeNull();
+    // sem palavra nenhuma para conferir: o crédito ("Desenvolvido por") também não vale
+    expect(extrairSinais([pagina], ANO, []).perfil.instagram).toBeNull();
+  });
+
+  it("entre vários perfis, fica o que tem o nome da empresa ou do domínio", () => {
+    const { perfil } = extrairSinais(
+      [
+        {
+          url: "https://www.papytobirds.com.br/",
+          html: `<a href="https://instagram.com/agenciax">Agência X</a>
+                 <a href="https://www.instagram.com/papytobirdsoficial/">Siga</a>
+                 <a href="https://www.linkedin.com/company/imperio-das-aves/">LinkedIn</a>`,
+        },
+      ],
+      ANO,
+      ["imperio", "aves", "papytobirds"],
+    );
+    expect(perfil.instagram).toBe("https://www.instagram.com/papytobirdsoficial/");
+    expect(perfil.linkedin).toBe("https://www.linkedin.com/company/imperio-das-aves/");
   });
 
   it("um sinal aparece uma vez só, com a primeira prova", () => {

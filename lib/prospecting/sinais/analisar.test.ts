@@ -65,6 +65,80 @@ describe("análise de uma empresa", () => {
     expect(lidas).toEqual(["https://contabil.com.br/"]);
   });
 
+  it("Instagram no lugar do site: vira perfil e 'sem site', sem tentar ler", async () => {
+    const { ler, lidas } = leitorFalso({});
+    const a = await analisarEmpresa(
+      {
+        name: "Fábrica do Queijo",
+        website: "https://www.instagram.com/fabricadoqueijo/",
+        emails: [],
+      },
+      PEDIDA,
+      { ler, agora },
+    );
+    expect(a.status).toBe("sem_site");
+    expect(a.perfil.instagram).toBe("https://www.instagram.com/fabricadoqueijo/");
+    expect(a.sinais[0]).toMatchObject({
+      tipo: "sem_site",
+      link: "https://www.instagram.com/fabricadoqueijo/",
+    });
+    expect(a.sinais[0]?.evidencia).toContain("Instagram");
+    expect(lidas).toEqual([]);
+  });
+
+  it("página de pedidos no lugar do site: 'sem site', com a plataforma na prova", async () => {
+    const { ler } = leitorFalso({});
+    const a = await analisarEmpresa(
+      { name: "Top Massas", website: "https://toppaodequeijo.pedidoon.net/", emails: [] },
+      PEDIDA,
+      { ler, agora },
+    );
+    expect(a.status).toBe("sem_site");
+    expect(a.sinais[0]?.evidencia).toContain("pedidoon.net");
+  });
+
+  it("http no Maps, mas o site tem cadeado: lê pelo https e não acusa 'sem cadeado'", async () => {
+    const { ler, lidas } = leitorFalso({
+      "https://galiza.com.br/":
+        "<title>Galiza Distribuidora</title><p>Distribuição de alimentos</p>",
+      "http://galiza.com.br/": "<p>Galiza</p>",
+    });
+    const a = await analisarEmpresa(
+      { name: "Galiza Distribuidora", website: "http://galiza.com.br/", emails: [] },
+      PEDIDA,
+      { ler, agora },
+    );
+    expect(lidas[0]).toBe("https://galiza.com.br/");
+    expect(a.site?.url).toBe("https://galiza.com.br/");
+    expect(a.sinais.map((s) => s.tipo)).not.toContain("site_sem_https");
+  });
+
+  it("sem https que abra, o http lido é 'sem cadeado' de verdade", async () => {
+    const { ler } = leitorFalso({
+      "https://galiza.com.br/": { ok: false, url: "https://galiza.com.br/", motivo: "conexao" },
+      "http://galiza.com.br/": "<title>Galiza</title><p>Distribuição de alimentos</p>",
+    });
+    const a = await analisarEmpresa(
+      { name: "Galiza Distribuidora", website: "http://galiza.com.br/", emails: [] },
+      PEDIDA,
+      { ler, agora },
+    );
+    expect(a.sinais.map((s) => s.tipo)).toContain("site_sem_https");
+  });
+
+  it("site que abre só com um aviso de suspenso é 'site fora do ar'", async () => {
+    const { ler } = leitorFalso({
+      "https://massasx.com.br/": "<h1>Este site está temporariamente indisponível.</h1>",
+    });
+    const a = await analisarEmpresa(
+      { name: "Massas X", website: "https://massasx.com.br/", emails: [] },
+      PEDIDA,
+      { ler, agora },
+    );
+    expect(a.status).toBe("fora_do_ar");
+    expect(a.sinais[0]?.evidencia).toContain("temporariamente indisponível");
+  });
+
   it("site conferido: lê a home e as páginas de interesse, e junta os sinais", async () => {
     const { ler, lidas } = leitorFalso({
       "https://serra.com.br/": `<title>Laticínios Serra</title>

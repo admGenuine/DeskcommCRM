@@ -92,10 +92,19 @@ export const analiseSchema = z
     paginas: z.array(z.string().max(500)).max(6),
     /** Por que não houve site ou leitura, em português, para a tela. */
     observacao: z.string().max(300).nullable(),
-    versao: z.literal(1),
+    /** Versão das réguas que fizeram a análise; a de versão antiga pode ser refeita. */
+    versao: z.number().int().min(1),
   })
   .strict();
 export type Analise = z.infer<typeof analiseSchema>;
+
+/**
+ * A versão das réguas. Sobe quando uma correção muda o resultado (17/10/2026,
+ * versão 2: perfil da agência, site do Maps que é rede social ou página de
+ * pedidos, cadeado, página de aviso); a análise de versão anterior volta a
+ * poder ser pedida, sem esperar os 180 dias.
+ */
+export const VERSAO_DA_ANALISE = 2;
 
 /** Uma análise vale por 180 dias (plano: cache de dados da empresa). */
 export const VALIDADE_DA_ANALISE_DIAS = 180;
@@ -113,6 +122,6 @@ export function analisePendente(agora: Date): Analise {
     sinais: [],
     paginas: [],
     observacao: null,
-    versao: 1,
+    versao: VERSAO_DA_ANALISE,
   };
 }
