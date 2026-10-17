@@ -36,9 +36,25 @@ Cada arquivo do núcleo que o fork altera fica listado aqui, com o motivo, porqu
 
 Ao trazer uma release nova do original, essas linhas podem dar conflito. A resolução é sempre manter o lado do fork (`admgenuine` e `producao`).
 
+### Pontos de encontro com a prospecção do original
+
+A prospecção é o módulo que o fork mais mexe, e o original também evolui nela. Na subida para a v1.84.0 os dois lados se encontraram nestes pontos; a próxima subida deve conferi-los primeiro:
+
+| Onde | Como ficou |
+|---|---|
+| `lib/prospecting/provedor.ts` (despachante do original, #1758) | `startSearch` ganhou o terceiro argumento opcional `alcance` (busca repetida vai mais fundo). Sem ele, vale o limite, como no original |
+| `lib/prospecting/store.ts`, `createSearch` e `synchronizeSearch` | A lógica do fork (busca repetida, régua de entrada, aviso da busca) roda sobre `provedorDaOrganizacao`, nunca chamando `provider.ts` direto |
+| `lib/prospecting/store.ts`, `activateCampaign` | A régua do legado (`motivoDeRecusaDoLegado`) filtra os candidatos ANTES de `enfileirarCandidatos` do original (escolha do operador, triagem, modo `on_send`) |
+| `lib/prospecting/store.ts`, `triarCandidato` | Sem telefone usa o motivo gravado na entrada (`phone_issue`) |
+| `lib/prospecting/worker.ts` | A checagem "tem WhatsApp?" do fork vem ANTES do `prepararCandidatoNoEnvio` do original: número sem WhatsApp não cria contato nem negócio no modo `on_send` |
+| `app/api/v1/prospecting/route.ts` | As ações do fork (`rate`, `reference`, `market_campaign`) usam o `auditMetadata` e o `resolveAuthDual` do original, e ficam fechadas ao token (`ACOES_ABERTAS_AO_TOKEN`) |
+| `app/app/prospecting/_client.tsx` | Os contadores-filtro do fork somam com a seleção do original: a lista visível esconde as desmarcadas (original) e aplica o filtro do contador (fork) |
+
 ### Migrations do fork
 
-As migrations do fork começam em **9001** (`<timestamp>_9001_<slug>.sql`), longe da numeração do original, para nunca colidir. Seguem a mesma tripla do projeto: arquivo em `supabase/migrations/`, bloco idempotente no **fim** do `supabase/baseline.sql` (rotulado `(migration 9001, fork da Genuine)`) e linha no `MANIFEST.md`. Só aditivas.
+As migrations do fork começam em **9001** (`<timestamp>_9001_<slug>.sql`), longe da numeração do original, para nunca colidir. Seguem a mesma tripla do projeto: arquivo em `supabase/migrations/`, bloco idempotente no **fim** do `supabase/baseline.sql` (rotulado `(migration 9001, fork da Genuine)`) e o registro. Só aditivas.
+
+**O registro mudou no original (v1.70.0, #2149):** migration nova se descreve numa linha `-- manifest: <o quê e por quê>` no cabeçalho do próprio `.sql`, e **não** ganha linha no `MANIFEST.md` (nos dois lugares ao mesmo tempo, `tests/unit/manifest-x-migrations.test.ts` reprova). A 9001 e a 9002 ficaram no `MANIFEST.md`, como histórico; da 9003 em diante, só o cabeçalho.
 
 | Migration | O que faz |
 |---|---|
