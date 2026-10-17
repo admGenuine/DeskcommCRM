@@ -21,6 +21,8 @@ import { alcanceDaBusca, mesmaBusca } from "@/lib/prospecting/busca-repetida";
 import { ProspectingAgentBuilder, type CreatedProspectingAgent } from "./_create-agent";
 import { AprendizadoCard, AvaliacaoDaEmpresa, ReferenciaDaCampanha } from "./_avaliacao";
 import { AnaliseDaCampanha, SinaisDaEmpresa } from "./_sinais";
+import { FicarComAsMelhores, NotaDaEmpresa } from "./_score";
+import { pontuar } from "@/lib/prospecting/score";
 import { FILTROS, passaNoFiltro, type Filtro } from "./_filtro";
 import { MercadoForm } from "./_mercado";
 import type { PerfilAprendido } from "@/lib/prospecting/aprendizado";
@@ -128,6 +130,8 @@ export function ProspectingClient() {
   const [createdAgents, setCreatedAgents] = useState<{ id: string; name: string }[]>([]);
   // As desmarcadas ficam escondidas por padrão; este botão só decide se aparecem.
   const [mostrarDesmarcadas, setMostrarDesmarcadas] = useState(false);
+  // Fork (Fase 4): a tabela vem pela nota, da maior para a menor; o operador pode voltar à ordem da busca.
+  const [ordenarPorNota, setOrdenarPorNota] = useState(true);
   const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
   // Edição do ritmo de uma campanha PAUSADA; vale para uma campanha por vez.
   const [ritmo, setRitmo] = useState<{
@@ -289,6 +293,52 @@ export function ProspectingClient() {
       t("Seleção da fila atualizada."),
     );
   }
+  // Fork (Fase 4): a nota de cada empresa, calculada na hora (`lib/prospecting/score.ts`).
+  const scores = new Map(candidates.map((c) => [c.id, pontuar(c.data, data?.aprendizado)]));
+  const notaDe = (c: Candidate) => scores.get(c.id)?.nota ?? 0;
+  // Disputam a escolha só as linhas que a seleção altera de fato: na preparação o servidor
+  // só mexe em quem está como "Encontrado"; na fila pausada, nas que a caixa pode marcar.
+  const naDisputa = elegiveis
+    .filter((c) => !noRascunho || c.status === "new")
+    .map((c) => ({
+      id: c.id,
+      selected: c.selected,
+      nota: notaDe(c),
+      semAnaliseDoSite: scores.get(c.id)?.semAnaliseDoSite ?? true,
+    }));
+  async function ficarComAsMelhores(entram: string[], saem: string[]) {
+    if (!campaign) return false;
+    const action = noRascunho ? "select" : "select_in_queue";
+    const lotes = (ids: string[]) =>
+      Array.from({ length: Math.ceil(ids.length / 5000) }, (_, i) =>
+        ids.slice(i * 5000, (i + 1) * 5000),
+      );
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      for (const [ids, selected] of [
+        [saem, false],
+        [entram, true],
+      ] as const)
+        for (const lote of lotes(ids))
+          await apiClient.post("/api/v1/prospecting", {
+            action,
+            id: campaign.id,
+            candidate_ids: lote,
+            selected,
+          });
+      await query.refetch();
+      setNotice(t("Seleção ajustada: ficaram marcadas só as melhores pela nota."));
+      return true;
+    } catch (e) {
+      await query.refetch();
+      setError(e instanceof Error ? e.message : t("Não foi possível concluir a operação."));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
   async function excluirDesmarcadas() {
     if (!campaign) return;
     const excluiu = await perform(
@@ -319,6 +369,7 @@ export function ProspectingClient() {
       passaNoFiltro(c, filtro.tipo) &&
       (!filtro.motivo || (c.error ?? t("Sem motivo registrado")) === filtro.motivo),
   );
+  const linhas = ordenarPorNota ? [...visiveis].sort((a, b) => notaDe(b) - notaDe(a)) : visiveis;
   const rotulosDosFiltros: Record<Filtro, string> = {
     todos: t("Encontrados"),
     aprovados: t("Aprovados"),
@@ -1300,6 +1351,31 @@ export function ProspectingClient() {
                         />
                       </div>
                     )}
+                    {buscaConcluida && candidates.length > 0 && (
+                      <div className="mt-3 flex flex-col gap-2">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span>
+                            {t(
+                              "Nota de 0 a 100: porte, sinais do site, avaliações no Maps e o seu Gostei. Clique na nota para ver os pontos.",
+                            )}
+                          </span>
+                          <button
+                            type="button"
+                            className="underline"
+                            onClick={() => setOrdenarPorNota((v) => !v)}
+                          >
+                            {ordenarPorNota ? t("Ordem da busca") : t("Ordenar pela nota")}
+                          </button>
+                        </div>
+                        {canSelect && (
+                          <FicarComAsMelhores
+                            disputa={naDisputa}
+                            busy={busy}
+                            onAplicar={ficarComAsMelhores}
+                          />
+                        )}
+                      </div>
+                    )}
                     {(filtro.tipo !== "todos" || filtro.motivo) && (
                       <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md bg-muted p-3 text-sm">
                         <span>
@@ -1341,6 +1417,7 @@ export function ProspectingClient() {
                             </th>
                           )}
                           <th className="p-4">{t("Empresa")}</th>
+                          <th className="p-4">{t("Nota")}</th>
                           <th className="p-4">{t("Informações")}</th>
                           <th className="p-4">{t("Progresso")}</th>
                           <th className="p-4">{t("Conversa")}</th>
@@ -1352,14 +1429,14 @@ export function ProspectingClient() {
                         {visiveis.length === 0 && (
                           <tr>
                             <td
-                              colSpan={canSelect ? 7 : 6}
+                              colSpan={canSelect ? 8 : 7}
                               className="p-6 text-center text-sm text-muted-foreground"
                             >
                               {t("Nenhuma empresa neste filtro.")}
                             </td>
                           </tr>
                         )}
-                        {visiveis.map((c) => (
+                        {linhas.map((c) => (
                           <tr key={c.id} className="border-b last:border-0">
                             {canSelect && (
                               <td className="p-4 align-top">
@@ -1380,6 +1457,11 @@ export function ProspectingClient() {
                                 {c.data.category}
                               </p>
                               <p className="mt-1 text-xs">{c.data.phone ?? t("Sem telefone")}</p>
+                            </td>
+                            <td className="p-4 align-top">
+                              <NotaDaEmpresa
+                                score={scores.get(c.id) ?? pontuar(c.data, data?.aprendizado)}
+                              />
                             </td>
                             <td className="max-w-64 p-4 align-top">
                               <p className="text-xs text-muted-foreground">{c.data.address}</p>
