@@ -15,7 +15,8 @@
 #   - workflow_dispatch com `gravar` na `producao`: além disso, carrega no banco
 #     do segredo MERCADO_DB_URL (connection string do Supabase), numa transação.
 #   - tag de versão (a release que o dono publica): filtra e grava, se o segredo
-#     existir. É o que mantém o mercado em dia sem botão: o GitHub só mostra o
+#     existir e se o mês publicado ainda não estiver no banco. É o que mantém o
+#     mercado em dia sem botão: o GitHub só mostra o
 #     "Run workflow" de workflow que está no ramo padrão, e o padrão do fork é a
 #     `main`, espelho do original, onde esta rotina não mora.
 name: genuine-mercado
@@ -81,7 +82,32 @@ jobs:
           [ -s "$RUNNER_TEMP/fonte.err" ] && echo "::warning::$(tr '\n' ' ' < "$RUNNER_TEMP/fonte.err" | head -c 800)"
           echo "::notice::Base $mes, fonte $fonte ($(jq -r .url "$RUNNER_TEMP/fonte.json")): $(jq -r '.arquivos | join(" ")' "$RUNNER_TEMP/fonte.json")"
 
+      - name: A base deste mês já está no banco?
+        id: ja
+        # Só na release: o PR e o disparo manual existem para medir e gravar de
+        # propósito. Medido em 17/10/2026: três releases no mesmo dia baixaram a
+        # mesma base (vários GB, uma hora cada pela Receita) para gravar a mesma coisa.
+        if: github.event_name == 'push'
+        env:
+          MERCADO_DB_URL: ${{ secrets.MERCADO_DB_URL }}
+          MES: ${{ steps.fonte.outputs.mes }}
+        run: |
+          set -uo pipefail
+          if [ -z "${MERCADO_DB_URL:-}" ]; then
+            echo "pular=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Sem tabela, sem acesso ou qualquer erro: não pula (a gravação explica o erro).
+          atual="$(psql "$MERCADO_DB_URL" -Atc "select coalesce(max(referencia), '') from public.prospecting_market_companies" 2>/dev/null || true)"
+          if [ "$atual" = "$MES" ]; then
+            echo "::notice::A base $MES já está gravada no banco: nada a baixar nesta release."
+            echo "pular=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pular=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Baixar a base
+        if: steps.ja.outputs.pular != 'true'
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/receita"
@@ -104,6 +130,7 @@ jobs:
           ls -la "$dir"
 
       - name: Filtrar o recorte
+        if: steps.ja.outputs.pular != 'true'
         env:
           MES: ${{ steps.fonte.outputs.mes }}
         run: |
@@ -149,6 +176,7 @@ jobs:
           ls -la saida
 
       - uses: actions/upload-artifact@v7
+        if: steps.ja.outputs.pular != 'true'
         with:
           name: mercado-${{ steps.fonte.outputs.mes }}
           path: |
@@ -157,7 +185,7 @@ jobs:
           retention-days: 30
 
       - name: Gravar no banco
-        if: (github.event_name == 'workflow_dispatch' && inputs.gravar && github.ref == 'refs/heads/producao') || github.event_name == 'push'
+        if: steps.ja.outputs.pular != 'true' && ((github.event_name == 'workflow_dispatch' && inputs.gravar && github.ref == 'refs/heads/producao') || github.event_name == 'push')
         env:
           MERCADO_DB_URL: ${{ secrets.MERCADO_DB_URL }}
         run: |

@@ -69,7 +69,8 @@ Ao trazer uma release nova do original, o `baseline.sql` e o `MANIFEST.md` podem
 Baixa a base pública de CNPJ da Receita, filtra o recorte da prospecção (`scripts/genuine/mercado/filtrar_receita.py`) e, quando pedido, grava em `prospecting_market_companies` (`scripts/genuine/mercado/carregar.sql`, numa transação).
 
 - Gravar exige o segredo **`MERCADO_DB_URL`** (Settings, Secrets and variables, Actions): a connection string do Supabase, a mesma da VPS.
-- **Quando roda e grava:** a cada release publicada (a tag `v*`), sozinha. Sem o segredo, filtra e não grava, sem reprovar nada.
+- **Quando roda e grava:** a cada release publicada (a tag `v*`), sozinha, e só baixa quando o mês publicado ainda não está no banco (o passo "A base deste mês já está no banco?" pergunta ao banco antes de baixar vários GB). Sem o segredo, filtra e não grava, sem reprovar nada.
+- **Fonte e tempo:** com a Receita atendendo, o download leva perto de uma hora; pelo espelho, poucos minutos.
 - O GitHub só agenda (`schedule`) ou mostra o botão "Run workflow" de workflow que está no ramo padrão, e o padrão do fork é a `main`, espelho do original. Por isso a rotina anda junto com as releases. Para rodar fora delas: disparo pela API (`workflow_dispatch` com `gravar`, ref `producao`).
 - **Fonte:** a Receita recusa conexão de fora do Brasil, e o runner do GitHub é de fora; a rotina usa então o espelho mensal da Casa dos Dados (os mesmos arquivos). O aviso do job diz qual fonte foi usada.
 - O recorte (estados, CNAE) está nas variáveis `UFS`, `CNAE_PREFIXOS` e `CNAE_EXCLUIDOS` do workflow.
