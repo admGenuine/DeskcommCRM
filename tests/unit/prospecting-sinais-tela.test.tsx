@@ -79,6 +79,15 @@ describe("analisar os sites da campanha", () => {
     expect(contarAnalises(candidatos)).toEqual({ analisadas: 1, naFila: 1, semPedido: 2 });
   });
 
+  it("análise feita por uma versão anterior das réguas conta como a pedir de novo", () => {
+    expect(
+      contarAnalises([
+        { status: "new", data: { analise: { ...ok, versao: 1 } } },
+        { status: "new", data: { analise: ok } },
+      ]),
+    ).toEqual({ analisadas: 1, naFila: 0, semPedido: 1 });
+  });
+
   it("o botão pede a análise e diz quantas faltam", async () => {
     const onAnalisar = vi.fn(async () => true);
     render(<AnaliseDaCampanha candidates={candidatos} busy={false} onAnalisar={onAnalisar} />);

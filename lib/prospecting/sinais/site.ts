@@ -74,11 +74,41 @@ export function dominioDoEmail(email: string): string | null {
   return dominio;
 }
 
+/** Rede social no lugar do site: o endereço vira perfil, não site. */
+const REDES: { rede: "instagram" | "facebook" | "linkedin"; host: RegExp }[] = [
+  { rede: "instagram", host: /(^|\.)instagram\.com$/ },
+  { rede: "facebook", host: /(^|\.)(facebook|fb)\.com$/ },
+  { rede: "linkedin", host: /(^|\.)linkedin\.com$/ },
+];
+
+/**
+ * Páginas que não são o site da empresa: cardápio e pedido on-line, link na bio,
+ * WhatsApp. Medido em 17/10/2026 na campanha de Londrina: uma fábrica tinha no
+ * Maps a loja dela numa plataforma de pedidos, fora do ar, e outra o Instagram;
+ * as duas saíram como "site", e uma como "site fora do ar".
+ */
+const PLATAFORMAS =
+  /(^|\.)(pedidoon\.net|anota\.ai|ifood\.com\.br|goomer\.app|cardapioweb\.com|menudino\.com|aiqfome\.com|deliverydireto\.com\.br|linktr\.ee|bio\.link|beacons\.ai|taplink\.cc|wa\.me|whatsapp\.com)$/;
+
+export type EnderecoDoMaps =
+  | { tipo: "site"; url: string }
+  | { tipo: "rede"; rede: "instagram" | "facebook" | "linkedin"; url: string }
+  | { tipo: "plataforma"; host: string; url: string };
+
+/** O que é o endereço que o Maps deu como site da empresa. */
+export function classificarEnderecoDoMaps(bruto: string): EnderecoDoMaps | null {
+  const url = urlPublica(bruto);
+  if (!url) return null;
+  const host = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+  const rede = REDES.find((r) => r.host.test(host));
+  if (rede) return { tipo: "rede", rede: rede.rede, url };
+  if (PLATAFORMAS.test(host)) return { tipo: "plataforma", host, url };
+  return { tipo: "site", url };
+}
+
 export function siteDoCandidato(p: Pick<Prospect, "website" | "emails">): SiteAchado | null {
-  if (p.website) {
-    const url = urlPublica(p.website);
-    if (url) return { url, origem: "maps" };
-  }
+  const doMaps = p.website ? classificarEnderecoDoMaps(p.website) : null;
+  if (doMaps?.tipo === "site") return { url: doMaps.url, origem: "maps" };
   for (const email of p.emails ?? []) {
     const dominio = dominioDoEmail(email);
     if (dominio) return { url: `https://${dominio}/`, origem: "email" };
@@ -119,6 +149,16 @@ function normalizar(texto: string): string {
 }
 
 /** As palavras do nome que identificam a empresa (4 letras ou mais, não genéricas). */
+/** A palavra que o domínio carrega: "sweetsabor" em www.sweetsabor.com.br. */
+export function rotuloDoDominio(url: string): string | null {
+  try {
+    const rotulo = new URL(url).hostname.replace(/^www\./, "").split(".")[0] ?? "";
+    return rotulo.length >= 4 ? rotulo.toLowerCase().replace(/[^a-z0-9]/g, "") : null;
+  } catch {
+    return null;
+  }
+}
+
 export function palavrasDoNome(...nomes: (string | null | undefined)[]): string[] {
   const palavras = new Set<string>();
   for (const nome of nomes) {

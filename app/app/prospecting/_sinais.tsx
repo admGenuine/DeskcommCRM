@@ -8,7 +8,7 @@ import { Globe, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useT } from "@/hooks/i18n/useT";
-import { ROTULO_DO_SINAL, type Analise } from "@/lib/prospecting/sinais/tipos";
+import { ROTULO_DO_SINAL, VERSAO_DA_ANALISE, type Analise } from "@/lib/prospecting/sinais/tipos";
 
 type ComAnalise = { status: string; data: { analise?: Analise } };
 
@@ -33,8 +33,10 @@ export function contarAnalises(candidates: ComAnalise[]) {
   let semPedido = 0;
   for (const c of candidates) {
     const status = c.data.analise?.status;
-    if (status && CONCLUIDAS.has(status)) analisadas++;
-    else if (status) naFila++;
+    // Análise feita por uma versão anterior das réguas pode ser pedida de novo.
+    const antiga = (c.data.analise?.versao ?? VERSAO_DA_ANALISE) < VERSAO_DA_ANALISE;
+    if (status && CONCLUIDAS.has(status) && !antiga) analisadas++;
+    else if (status && !CONCLUIDAS.has(status)) naFila++;
     else if (c.status !== "skipped") semPedido++;
   }
   return { analisadas, naFila, semPedido };

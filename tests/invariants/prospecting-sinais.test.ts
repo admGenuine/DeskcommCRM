@@ -37,7 +37,7 @@ const CAMP_A = "5e1c0da0-1111-4000-8000-00000000000a";
 const CAMP_B = "5e1c0da0-1111-4000-8000-00000000000b";
 const CAMP_P = "5e1c0da0-1111-4000-8000-00000000000c";
 
-const analiseOk = (dias: number) =>
+const analiseOk = (dias: number, versao = 2) =>
   JSON.stringify({
     status: "ok",
     pedida_em: "2026-01-01T00:00:00Z",
@@ -48,7 +48,7 @@ const analiseOk = (dias: number) =>
     sinais: [],
     paginas: ["https://antiga.com.br/"],
     observacao: null,
-    versao: 1,
+    versao,
   });
 
 const candidato = (
@@ -77,13 +77,16 @@ beforeAll(() => {
          ${candidato(ORG_A, CAMP_A, "5e1c0da0-2222-4000-8000-0000000000a2", { status: "skipped" })},
          ${candidato(ORG_A, CAMP_A, "5e1c0da0-2222-4000-8000-0000000000a3", { analise: analiseOk(10) })},
          ${candidato(ORG_A, CAMP_A, "5e1c0da0-2222-4000-8000-0000000000a4", { analise: analiseOk(200) })},
+         ${candidato(ORG_A, CAMP_A, "5e1c0da0-2222-4000-8000-0000000000a5", { analise: analiseOk(10, 1) })},
          ${candidato(ORG_B, CAMP_B, "5e1c0da0-2222-4000-8000-0000000000b1")},
          ${candidato(ORG_PARADA, CAMP_P, "5e1c0da0-2222-4000-8000-0000000000c1")};`);
 });
 
 describe("fila da análise de sites contra o baseline", () => {
   it("pedir marca só as da campanha, da organização, não recusadas e sem análise válida", async () => {
-    expect(await pedirAnaliseDaCampanha(pool, ORG_A, CAMP_A)).toEqual({ pedidas: 2 });
+    // sem análise, análise vencida e análise recente feita pela versão 1 das réguas
+    expect(await pedirAnaliseDaCampanha(pool, ORG_A, CAMP_A)).toEqual({ pedidas: 3 });
+    expect(status("5e1c0da0-2222-4000-8000-0000000000a5")).toBe("pendente");
     expect(status("5e1c0da0-2222-4000-8000-0000000000a1")).toBe("pendente");
     expect(status("5e1c0da0-2222-4000-8000-0000000000a2")).toBe("—");
     expect(status("5e1c0da0-2222-4000-8000-0000000000a3")).toBe("ok");
@@ -101,6 +104,7 @@ describe("fila da análise de sites contra o baseline", () => {
     expect(pegas.map((c) => c.id).sort()).toEqual([
       "5e1c0da0-2222-4000-8000-0000000000a1",
       "5e1c0da0-2222-4000-8000-0000000000a4",
+      "5e1c0da0-2222-4000-8000-0000000000a5",
     ]);
     expect(status("5e1c0da0-2222-4000-8000-0000000000a1")).toBe("analisando");
     expect(status("5e1c0da0-2222-4000-8000-0000000000c1")).toBe("pendente");

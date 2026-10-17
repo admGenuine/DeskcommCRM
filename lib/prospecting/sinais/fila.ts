@@ -3,8 +3,8 @@
  * (`prospecting_candidates.data.analise`).
  *
  * - `pedirAnaliseDaCampanha`: o dono pede, a tela chama; marca como pendente as
- *   empresas da campanha que ainda não foram analisadas (ou cuja análise venceu)
- *   e que não foram recusadas.
+ *   empresas da campanha que ainda não foram analisadas (ou cuja análise venceu,
+ *   ou foi feita por uma versão anterior das réguas) e que não foram recusadas.
  * - `analisarSitesPendentes`: a rodada do worker de prospecção. Pega poucas por
  *   vez (`for update skip locked`, sem o lock da organização: a leitura de sites
  *   demora e não pode travar os comandos da tela), lê, grava.
@@ -19,7 +19,12 @@ import { logger } from "@/lib/logger";
 
 import type { Prospect } from "../schema";
 import { analisarEmpresa, type DependenciasDaAnalise } from "./analisar";
-import { analisePendente, analiseSchema, VALIDADE_DA_ANALISE_DIAS } from "./tipos";
+import {
+  analisePendente,
+  analiseSchema,
+  VALIDADE_DA_ANALISE_DIAS,
+  VERSAO_DA_ANALISE,
+} from "./tipos";
 
 /** Quantas empresas a rodada pega de uma vez (lidas em paralelo). */
 const LOTE = 4;
@@ -40,9 +45,16 @@ export async function pedirAnaliseDaCampanha(
         and (
           data->'analise' is null
           or (data->'analise'->>'status' in ('ok','sem_site','fora_do_ar')
-              and (data->'analise'->>'analisada_em')::timestamptz < now() - make_interval(days => $4::int))
+              and ((data->'analise'->>'analisada_em')::timestamptz < now() - make_interval(days => $4::int)
+                   or coalesce((data->'analise'->>'versao')::int, 1) < $5::int))
         )`,
-    [org, campaignId, JSON.stringify(analisePendente(agora)), VALIDADE_DA_ANALISE_DIAS],
+    [
+      org,
+      campaignId,
+      JSON.stringify(analisePendente(agora)),
+      VALIDADE_DA_ANALISE_DIAS,
+      VERSAO_DA_ANALISE,
+    ],
   );
   return { pedidas: rowCount ?? 0 };
 }
