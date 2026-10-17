@@ -3,7 +3,10 @@ import type { FollowupFlowSurface } from './api-schemas';
 import { branchIdForCondition, nodeBranches } from './graph-schema';
 import { rotuloDoRamo } from './rotulo-do-ramo';
 import type { NomesDeValor } from './vocabulario';
+import type { EtapaCitada } from './etapas-citadas';
+import { recusaDeMotivoForaDoVocabulario } from '../leads/motivo-da-perda';
 import { capabilitiesOf, transportaMensagem, type ChannelProvider } from '../channels/capabilities';
+import { CUSTO_NO_MOTOR, TETO_DE_PASSOS_DO_MOTOR } from './custo-no-motor';
 
 /**
  * Structural publish validator for follow-up flow graphs.
@@ -30,11 +33,20 @@ export const PUBLISH_ERROR_CODES = [
   'immune_wait_too_short',
   'cycle_without_wait',
   'max_steps_exceeded',
+  // #2965 — o teto do MOTOR (`steps_taken`/`MAX_STEPS`, ver `custo-no-motor.ts`):
+  // o caminho linear que ele não conseguiria terminar.
+  'max_engine_steps_exceeded',
   'no_fora_da_superficie',
   'interno_com_envio',
   'roteiro_ramificado',
   'campo_repetido',
   'roteiro_em_ciclo',
+  // #2065 — configuração dos dois nós de ação que não falam com o cliente.
+  'etapa_destino_ausente',
+  'etapa_destino_arquivada',
+  'motivo_da_perda_ausente',
+  'motivo_da_perda_invalido',
+  'tag_ausente',
 ] as const;
 export type PublishErrorCode = (typeof PUBLISH_ERROR_CODES)[number];
 
@@ -56,7 +68,7 @@ export type PublishValidationResult =
  */
 export interface ContextoDoPublish {
   /** Etapas da organização por `stage_id`, com o nome como a tela mostra («Etapa · Funil»). */
-  etapas?: ReadonlyMap<string, { nome: string; arquivada: boolean }>;
+  etapas?: ReadonlyMap<string, EtapaCitada>;
   /** Superfície do pointer. Ausente = follow-up (o que a coluna tem por padrão). */
   surface?: FollowupFlowSurface;
   /**
@@ -147,8 +159,8 @@ function cicloDoEncadeamento(
  * recusava em silêncio; a recusa aqui é o erro que a pessoa lê no editor.
  */
 export const NOS_DA_SUPERFICIE: Record<FollowupFlowSurface, readonly NodeType[]> = {
-  followup: ['trigger', 'wait', 'condition', 'ai_classify', 'match_reply', 'repeat', 'action', 'internal_task', 'end'],
-  crm_automation: ['trigger', 'wait', 'condition', 'ai_classify', 'match_reply', 'repeat', 'action', 'internal_task', 'end'],
+  followup: ['trigger', 'wait', 'condition', 'ai_classify', 'match_reply', 'repeat', 'action', 'internal_task', 'move_lead', 'edit_lead_tag', 'end'],
+  crm_automation: ['trigger', 'wait', 'condition', 'ai_classify', 'match_reply', 'repeat', 'action', 'internal_task', 'move_lead', 'edit_lead_tag', 'end'],
   atendimento: ['trigger', 'collect', 'skill', 'end'],
 };
 
@@ -257,6 +269,51 @@ function validarSuperficie(
 const LONG_WAIT_THRESHOLD_MS = 86_400_000; // 24h
 const MIN_CYCLE_WAIT_MS = 300_000; // 5min
 const MAX_PATH_STEPS = 30;
+/**
+ * O QUE o teto de passos conta (#2896): o que o CLIENTE sente, não o que a tela
+ * desenha.
+ *
+ * O teto existe para limitar o tamanho da cadência — quantas vezes o cliente é
+ * tocado e quanto ele espera entre os toques. Contar TODO nó do caminho com o
+ * mesmo peso fazia a medida mentir: o fluxo de retomada do reporter (gatilho,
+ * filtro de entrada, 7 × mensagem + condição + tag, 7 esperas, mover para
+ * Perdido e fim) soma 32 nós e era recusado, embora só 14 deles — 7 mensagens e
+ * 7 esperas — cheguem ao cliente. Os outros 18 (gatilho, condição, tag, mover,
+ * fim) são trabalho interno e não somam toque nenhum; do jeito antigo QUALQUER
+ * cadência que registrasse algo por toque estourava com 6 ou 7 toques, e a
+ * única saída era cortar toque.
+ *
+ * Então conta quem produz algo que o cliente lê (mensagem, pergunta, o turno em
+ * que a skill entra no contexto do agente) ou quem o faz esperar (`wait`, e as
+ * caixas que ficam esperando a resposta com prazo — `ai_classify` e
+ * `match_reply`, que `isSufficientWaitNode` já trata como espera). Roteamento
+ * (`condition`, `repeat`) e ação interna (`internal_task`, `move_lead`,
+ * `edit_lead_tag`) não contam: não mudam nada do que o cliente sente, que é a
+ * única coisa que o teto prometeu medir.
+ *
+ * O `Record` é exaustivo DE PROPÓSITO: um tipo de nó novo quebra o typecheck
+ * até alguém dizer se ele conta. Com um `Set` de contados, o tipo novo cairia
+ * fora da conta sem ninguém notar — que é exatamente como o teto passou a
+ * mentir.
+ */
+export const CONTA_NO_TETO: Record<NodeType, boolean> = {
+  // Fala com o cliente.
+  action: true, // mensagem: texto, IA ou modelo
+  collect: true, // pergunta do roteiro de atendimento
+  skill: true, // o turno em que a skill entra no contexto do agente
+  // Faz o cliente esperar.
+  wait: true,
+  ai_classify: true, // parado esperando a resposta classificar (grace)
+  match_reply: true, // parado esperando a resposta casar o texto (grace)
+  // Controle e trabalho interno: não chegam ao cliente.
+  trigger: false, // entrada do fluxo
+  condition: false, // decide o caminho
+  repeat: false, // conta as voltas
+  internal_task: false, // lembrete para a equipe
+  move_lead: false, // move o card no funil
+  edit_lead_tag: false, // grava tag no lead
+  end: false, // desfecho
+};
 
 function waitMs(config: Extract<FlowNode, { type: 'wait' }>['config']): number {
   return config.mode === 'fixed' ? config.duration_ms : config.max_ms;
@@ -369,6 +426,9 @@ function isCycleComponent(component: string[], outEdges: Map<string, FlowEdge[]>
  * "cycles count 1 iteration"). Polynomial (O(V+E)): no per-path enumeration,
  * so branching/reconverging DAGs can't blow it up.
  *
+ * O passo contado é o que o CLIENTE sente (`CONTA_NO_TETO`, #2896) — mensagem,
+ * pergunta, espera — e nunca o nó interno que só registra estado.
+ *
  * ponytail: dentro de um SCC multi-ramo o total soma TODOS os waits/nós do
  * componente — upper bound conservador (nunca aceita grafo ruim; pode gerar
  * 422 a mais num SCC com sub-loops independentes). Máximo exato por caminho
@@ -396,7 +456,14 @@ function analyzeCondensedPaths(
       return node && node.type === 'wait' ? sum + waitMs(node.config) : sum;
     }, 0)
   );
-  const stepWeight = components.map((comp) => comp.length);
+  // O passo do teto é o que o cliente sente: mensagem, pergunta, espera. Um nó
+  // interno (condição, tag, mover, fim) não conta — ver `CONTA_NO_TETO` (#2896).
+  const stepWeight = components.map((comp) =>
+    comp.reduce((sum, id) => {
+      const node = nodesById.get(id);
+      return node !== undefined && CONTA_NO_TETO[node.type] ? sum + 1 : sum;
+    }, 0)
+  );
 
   const condOut = new Map<number, Set<number>>();
   for (const edgeList of outEdges.values()) {
@@ -454,6 +521,54 @@ function byId(a: { id: string }, b: { id: string }): number {
   return a.id.localeCompare(b.id);
 }
 
+/**
+ * O custo, em ticks do MOTOR (ver `custo-no-motor.ts`), do caminho LINEAR mais
+ * caro a partir do trigger (#2965) — o que o `steps_taken` gastaria até o fim do
+ * fluxo na hipótese mais custosa sem repetição.
+ *
+ * SÓ o caminho linear: nó que está dentro de um ciclo fica de fora, porque o
+ * custo dele depende de quantas voltas o lead faz na resposta e não cabe numa
+ * soma. Esse caso — o `repeat` — já existia antes do #2896 e é da issue #2977;
+ * aqui a régua para na fronteira do que ela consegue medir.
+ *
+ * O subgrafo que sobra depois de tirar os nós de ciclo é ACÍCLICO (todo ciclo
+ * seria componente própria de Tarjan e teria saído), então a recursão com memo
+ * termina sem precisar de guarda de visitação.
+ */
+export function custoDoCaminhoLinear(graph: FlowGraph): number {
+  const nodesById = new Map(graph.nodes.map((n) => [n.id, n]));
+  const outEdges = buildOutEdges(graph.edges);
+  const trigger = graph.nodes.find((n) => n.type === 'trigger');
+  if (!trigger) return 0;
+
+  const components = stronglyConnectedComponents(
+    graph.nodes.map((n) => n.id),
+    outEdges
+  );
+  const emCiclo = new Set<string>();
+  for (const component of components) {
+    if (isCycleComponent(component, outEdges)) component.forEach((id) => emCiclo.add(id));
+  }
+  if (emCiclo.has(trigger.id)) return 0;
+
+  const memo = new Map<string, number>();
+  const custo = (id: string): number => {
+    const cache = memo.get(id);
+    if (cache !== undefined) return cache;
+    const node = nodesById.get(id);
+    const proprio = node ? CUSTO_NO_MOTOR[node.type] : 0;
+    let maiorSucessor = 0;
+    for (const edge of outEdges.get(id) ?? []) {
+      if (emCiclo.has(edge.target)) continue;
+      maiorSucessor = Math.max(maiorSucessor, custo(edge.target));
+    }
+    const total = proprio + maiorSucessor;
+    memo.set(id, total);
+    return total;
+  };
+  return custo(trigger.id);
+}
+
 
 /**
  * Toda saída declarada do nó precisa levar a algum lugar, e a mensagem nomeia
@@ -484,6 +599,92 @@ function cobrirRamos(
       code: 'missing_branch_edge',
       branch_id: branch.id,
       message: `Nó "${node.id}": a saída "${rotuloDoRamo(branch, nomes)}" não está ligada a nada.`,
+    });
+  }
+}
+
+/**
+ * #2065 — nó `move_lead` sem etapa de destino, ou com uma etapa que não existe
+ * mais / está arquivada. Mesma régua da `conferirRegras` logo abaixo (e o mesmo
+ * `ContextoDoPublish.etapas`, lido por quem publica): o que só o banco sabe chega
+ * injetado, nunca adivinhado. Sem `contexto.etapas` a conferência não roda — ela
+ * recusa o que é visível, não o que é incerto.
+ *
+ * Etapa de perda exige motivo da perda no próprio bloco: sem ele o motor seria
+ * recusado com 422 (`lost_reason_required`) e o fluxo seguiria como se o card
+ * tivesse andado. Etapa que NÃO é de perda publica sem motivo — e aceita o
+ * motivo mesmo assim, para não reprovar rascunho que trocou de destino.
+ */
+function conferirEtapaDestino(
+  node: Extract<FlowNode, { type: 'move_lead' }>,
+  contexto: ContextoDoPublish,
+  errors: PublishValidationError[]
+): void {
+  const destino = node.config.stage_id.trim();
+  const ancora = { node_id: node.id };
+  if (destino === '') {
+    errors.push({
+      ...ancora,
+      code: 'etapa_destino_ausente',
+      message: `A caixa "${node.label}" não tem etapa de destino — escolha para onde o card vai.`,
+    });
+    return;
+  }
+  if (contexto.etapas === undefined) return;
+  const etapa = contexto.etapas.get(destino);
+  if (etapa === undefined) {
+    errors.push({
+      ...ancora,
+      code: 'etapa_destino_ausente',
+      message: `A caixa "${node.label}" aponta para uma etapa que não existe mais — escolha a etapa na lista.`,
+    });
+    return;
+  }
+  if (etapa.arquivada) {
+    errors.push({
+      ...ancora,
+      code: 'etapa_destino_arquivada',
+      message: `A caixa "${node.label}" move para a etapa arquivada "${etapa.nome}" — escolha uma etapa ativa.`,
+    });
+  }
+  if (!etapa.isPerda) return;
+  const motivo = (node.config.lost_reason ?? '').trim();
+  if (motivo === '') {
+    errors.push({
+      ...ancora,
+      code: 'motivo_da_perda_ausente',
+      message: `A caixa "${node.label}" move para a etapa de perda "${etapa.nome}" — escolha o motivo da perda no bloco antes de publicar.`,
+    });
+    return;
+  }
+  const foraDoVocabulario = recusaDeMotivoForaDoVocabulario({
+    motivo,
+    settingsDoFunil: etapa.settingsDoFunil,
+  });
+  if (foraDoVocabulario) {
+    errors.push({
+      ...ancora,
+      code: 'motivo_da_perda_invalido',
+      message: `A caixa "${node.label}" tem um motivo de perda que não está na lista deste funil — escolha um dos motivos configurados.`,
+    });
+  }
+}
+
+/**
+ * #2065 — nó `edit_lead_tag` sem tag (lista vazia ou com tag em branco). O
+ * schema aceita, porque o rascunho tem de salvar trabalho pela metade; publicado,
+ * um nó que não grava nada é mentira de interface.
+ */
+function conferirTags(
+  node: Extract<FlowNode, { type: 'edit_lead_tag' }>,
+  errors: PublishValidationError[]
+): void {
+  const tags = node.config.tags.map((t) => t.trim());
+  if (tags.length === 0 || tags.some((t) => t === '')) {
+    errors.push({
+      node_id: node.id,
+      code: 'tag_ausente',
+      message: `A caixa "${node.label}" não tem tag para gravar — escreva ao menos uma tag.`,
     });
   }
 }
@@ -633,8 +834,30 @@ export function validateFlowForPublish(
       errors.push({
         node_id: null,
         code: 'max_steps_exceeded',
-        message: `O caminho mais longo a partir do trigger excede ${MAX_PATH_STEPS} passos.`,
+        message: `O caminho mais longo a partir do trigger passa de ${MAX_PATH_STEPS} passos que o cliente sente (mensagem, pergunta, skill e espera) — tire um toque da cadência.`,
       });
+    }
+
+    // A SEGUNDA ponta do teto (#2965): o do MOTOR. O caminho LINEAR que custa mais
+    // ticks do que o relógio consegue dar publicava e morria no meio — a inscrição
+    // fechava com `cancel_reason = 'max_steps'` sem gravar as últimas caixas nem
+    // chegar ao fim (medido pelo mantenedor: 14 toques × mensagem+tag+tag+espera
+    // somam 86 ticks e o teto do motor é 80).
+    //
+    // O caso do `repeat` fica FORA de propósito: o custo de um ciclo não é uma
+    // soma (depende das voltas que o lead pedir) e a régua dele é a #2977, que já
+    // existia antes deste PR — `custoDoCaminhoLinear` exclui os nós de ciclo.
+    // O roteiro de atendimento também fica fora: quem o conduz é o motor do TURNO
+    // (`atendimento.ts`, com o teto próprio), não o relógio.
+    if (surface !== 'atendimento') {
+      const custoNoMotor = custoDoCaminhoLinear(graph);
+      if (custoNoMotor > TETO_DE_PASSOS_DO_MOTOR) {
+        errors.push({
+          node_id: null,
+          code: 'max_engine_steps_exceeded',
+          message: `O caminho mais longo deste fluxo custa ${custoNoMotor} passos no motor (o relógio conta cada tick: gatilho, mensagem, espera e registro) e ele desiste da inscrição depois de ${TETO_DE_PASSOS_DO_MOTOR} — a retomada morreria no meio, sem chegar ao fim. Encurte a cadência.`,
+        });
+      }
     }
   }
 
@@ -668,6 +891,14 @@ export function validateFlowForPublish(
 
   for (const node of [...nodes].sort(byId)) {
     if (node.type === 'condition') conferirRegras(node, contexto, errors);
+  }
+
+  // #2065 — os nós de ação nascem sem destino (o rascunho valida só a forma) e
+  // é AQUI que a escolha passa a ser obrigatória: publicar um nó que não move
+  // nem grava nada seria dizer à pessoa que o fluxo faz o que ele não faz.
+  for (const node of [...nodes].sort(byId)) {
+    if (node.type === 'move_lead') conferirEtapaDestino(node, contexto, errors);
+    if (node.type === 'edit_lead_tag') conferirTags(node, errors);
   }
 
   for (const node of [...nodes].sort(byId)) {

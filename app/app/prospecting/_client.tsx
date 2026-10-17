@@ -11,7 +11,12 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { apiClient } from "@/lib/api/client";
 import { useT } from "@/hooks/i18n/useT";
-import { safePublicLink, type CampaignConfig, type Prospect } from "@/lib/prospecting/schema";
+import {
+  RAZAO_NAO_SELECIONADA,
+  safePublicLink,
+  type CampaignConfig,
+  type Prospect,
+} from "@/lib/prospecting/schema";
 import { alcanceDaBusca, mesmaBusca } from "@/lib/prospecting/busca-repetida";
 import { ProspectingAgentBuilder, type CreatedProspectingAgent } from "./_create-agent";
 import { AprendizadoCard, AvaliacaoDaEmpresa, ReferenciaDaCampanha } from "./_avaliacao";
@@ -39,7 +44,9 @@ type Candidate = {
   id: string;
   campaign_id: string;
   data: Prospect;
+  selected?: boolean;
   status: string;
+  lead_id?: string | null;
   progress: string;
   message_status: string | null;
   error: string | null;
@@ -88,6 +95,8 @@ const emptyConfig: CampaignConfig = {
   daily_limit: 10,
   interval_minutes: 15,
   legal_basis_ref: "",
+  // Campanha nova nasce no modo recomendado; a configuração já gravada manda no que existe.
+  funnel_entry: "on_send",
 };
 export function ProspectingClient() {
   const t = useT();
@@ -116,6 +125,15 @@ export function ProspectingClient() {
   const [campaignDrafts, setCampaignDrafts] = useState<Record<string, CampaignConfig>>({});
   const [manualCampaigns, setManualCampaigns] = useState<Record<string, boolean>>({});
   const [createdAgents, setCreatedAgents] = useState<{ id: string; name: string }[]>([]);
+  // As desmarcadas ficam escondidas por padrão; este botão só decide se aparecem.
+  const [mostrarDesmarcadas, setMostrarDesmarcadas] = useState(false);
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
+  // Edição do ritmo de uma campanha PAUSADA; vale para uma campanha por vez.
+  const [ritmo, setRitmo] = useState<{
+    campaignId: string;
+    daily_limit: number;
+    interval_minutes: number;
+  } | null>(null);
   const campaign = data?.campaigns.find((c) => c.id === selected) ?? data?.campaigns[0];
   // A stored config is frozen by activation; unsaved choices belong to one campaign.
   const config = campaign?.config ?? (campaign && campaignDrafts[campaign.id]) ?? emptyConfig;
@@ -194,6 +212,90 @@ export function ProspectingClient() {
   }
   const update = <K extends keyof CampaignConfig>(field: K, value: CampaignConfig[K]) =>
     setConfig((c) => ({ ...c, [field]: value }));
+  function alternarEdicaoDoRitmo(c: Campaign) {
+    if (!c.config) return;
+    const { daily_limit, interval_minutes } = c.config;
+    setRitmo((atual) =>
+      atual?.campaignId === c.id ? null : { campaignId: c.id, daily_limit, interval_minutes },
+    );
+  }
+  const ritmoValido =
+    !!ritmo &&
+    Number.isInteger(ritmo.daily_limit) &&
+    ritmo.daily_limit >= 1 &&
+    ritmo.daily_limit <= 50 &&
+    Number.isInteger(ritmo.interval_minutes) &&
+    ritmo.interval_minutes >= 5 &&
+    ritmo.interval_minutes <= 1440;
+  async function salvarRitmo() {
+    if (!ritmo || !ritmoValido) return;
+    const salvou = await perform(
+      {
+        action: "adjust_pace",
+        id: ritmo.campaignId,
+        daily_limit: ritmo.daily_limit,
+        interval_minutes: ritmo.interval_minutes,
+      },
+      t("Ritmo atualizado. A campanha continua pausada."),
+    );
+    if (salvou) setRitmo(null);
+  }
+  const buscaConcluida = !!campaign && campaign.search_status === "succeeded";
+  const noRascunho = buscaConcluida && campaign?.status === "draft";
+  // Depois de iniciada, a fila só se mexe com a campanha PAUSADA: o envio não está no meio
+  // de uma abordagem. Quem já foi abordado, falhou ou está sendo preparado não muda.
+  const naFilaPausada = buscaConcluida && campaign?.status === "paused";
+  const canSelect = noRascunho || naFilaPausada;
+  const criaSoNoEnvio = campaign?.config?.funnel_entry === "on_send";
+  /** Linha que a caixa pode alterar agora. Espelha as regras do servidor (`selecionarNaFila`). */
+  const marcavel = (c: Candidate) => {
+    if (noRascunho) return true;
+    if (c.status === "queued") return true;
+    return (
+      c.status === "skipped" &&
+      c.selected === false &&
+      c.error === RAZAO_NAO_SELECIONADA &&
+      (criaSoNoEnvio || !!c.conversation_id)
+    );
+  };
+  const elegiveis = canSelect ? candidates.filter(marcavel) : [];
+  const allSelected = elegiveis.length > 0 && elegiveis.every((c) => c.selected !== false);
+  // Critério do #2048, medido sobre as linhas que a caixa pode alterar agora, não a fila inteira.
+  const noneSelected = elegiveis.every((c) => c.selected === false);
+  const desmarcadas = candidates.filter((c) => c.selected === false);
+  /**
+   * O que o botão "Excluir desmarcadas" realmente apaga. Espelha o `where` do servidor: sem
+   * negócio nem conversa (o que já virou registro do CRM não é daqui) e só o que o operador
+   * tirou. Numa campanha que criou o contato ao iniciar, toda desmarcada da fila já tem
+   * conversa — e o botão não aparece, em vez de dizer "excluído" sem ter excluído nada.
+   * (A linha-tomba de LGPD tem `error` nulo, então também fica de fora.)
+   */
+  const descartaveis = desmarcadas.filter(
+    (c) =>
+      !c.conversation_id &&
+      !c.lead_id &&
+      (c.status === "new" || (c.status === "skipped" && c.error === RAZAO_NAO_SELECIONADA)),
+  );
+  async function setSelection(candidateIds: string[], selected: boolean) {
+    if (!campaign) return;
+    await perform(
+      {
+        action: noRascunho ? "select" : "select_in_queue",
+        id: campaign.id,
+        candidate_ids: candidateIds,
+        selected,
+      },
+      t("Seleção da fila atualizada."),
+    );
+  }
+  async function excluirDesmarcadas() {
+    if (!campaign) return;
+    const excluiu = await perform(
+      { action: "discard_unselected", id: campaign.id },
+      t("Empresas desmarcadas excluídas."),
+    );
+    if (excluiu) setConfirmandoExclusao(false);
+  }
   const count = (filtro: Filtro) => candidates.filter((c) => passaNoFiltro(c, filtro)).length;
   // Recusado = não vai (ou não foi) abordado, com o motivo gravado pela régua de
   // aceite (`lib/prospecting/aceite`) ou pelo envio. O motivo vem do banco.
@@ -207,8 +309,12 @@ export function ProspectingClient() {
   ).sort((a, b) => b[1] - a[1]);
   // Os contadores filtram a tabela (`_filtro.ts`); o motivo, quando há, estreita
   // os recusados a um motivo só.
+  // Na preparação e na fila pausada, as desmarcadas pelo operador ficam
+  // escondidas até "Mostrar desmarcadas" (original); por cima disso, o filtro
+  // dos contadores (fork).
   const visiveis = candidates.filter(
     (c) =>
+      (!canSelect || mostrarDesmarcadas || c.selected !== false) &&
       passaNoFiltro(c, filtro.tipo) &&
       (!filtro.motivo || (c.error ?? t("Sem motivo registrado")) === filtro.motivo),
   );
@@ -300,7 +406,11 @@ export function ProspectingClient() {
         <aside className="flex flex-col gap-5">
           <Card className="p-5">
             <h2 className="text-lg font-semibold">{t("1. Encontrar empresas")}</h2>
-            <div role="group" aria-label={t("De onde vêm as empresas")} className="mt-3 grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
+            <div
+              role="group"
+              aria-label={t("De onde vêm as empresas")}
+              className="mt-3 grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
+            >
               <Button
                 type="button"
                 size="sm"
@@ -326,123 +436,125 @@ export function ProspectingClient() {
                 onCriar={async (body) => {
                   const criada = await perform(
                     { action: "market_campaign", ...body },
-                    t("Campanha criada com as empresas do mercado. Revise a lista e prepare a abordagem."),
+                    t(
+                      "Campanha criada com as empresas do mercado. Revise a lista e prepare a abordagem.",
+                    ),
                   );
                   if (criada) setSelected(null);
                   return criada;
                 }}
               />
             ) : (
-            <form
-              className="mt-4 space-y-4"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const fingerprint = JSON.stringify([niche, location, limit, budget, enrich]);
-                if (searchAttempt.current?.fingerprint !== fingerprint)
-                  searchAttempt.current = { fingerprint, id: randomId() };
-                const success = await perform(
-                  {
-                    action: "search",
-                    request_id: searchAttempt.current.id,
-                    search: {
-                      name: `${niche} · ${location}`.slice(0, 120),
-                      niche,
-                      location,
-                      limit,
-                      budget_usd: budget,
-                      enrich,
+              <form
+                className="mt-4 space-y-4"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const fingerprint = JSON.stringify([niche, location, limit, budget, enrich]);
+                  if (searchAttempt.current?.fingerprint !== fingerprint)
+                    searchAttempt.current = { fingerprint, id: randomId() };
+                  const success = await perform(
+                    {
+                      action: "search",
+                      request_id: searchAttempt.current.id,
+                      search: {
+                        name: `${niche} · ${location}`.slice(0, 120),
+                        niche,
+                        location,
+                        limit,
+                        budget_usd: budget,
+                        enrich,
+                      },
                     },
-                  },
-                  t("Solicitação registrada. Acompanhe o estado da busca nesta tela."),
-                );
-                if (success) {
-                  setSelected(null);
-                  searchAttempt.current = null;
-                }
-              }}
-            >
-              <div>
-                <Label htmlFor="prospecting-niche">{t("Público ou segmento")}</Label>
-                <Input
-                  id="prospecting-niche"
-                  value={niche}
-                  onChange={(e) => setNiche(e.target.value)}
-                  placeholder={t("Ex.: clínicas de estética")}
-                  minLength={2}
-                  maxLength={120}
-                  required
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <Label htmlFor="prospecting-location">{t("Cidade ou região")}</Label>
-                <Input
-                  id="prospecting-location"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder={t("Ex.: São Paulo, SP")}
-                  minLength={2}
-                  maxLength={160}
-                  required
-                  className="mt-1"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
+                    t("Solicitação registrada. Acompanhe o estado da busca nesta tela."),
+                  );
+                  if (success) {
+                    setSelected(null);
+                    searchAttempt.current = null;
+                  }
+                }}
+              >
                 <div>
-                  <Label htmlFor="prospecting-limit">{t("Até quantas empresas")}</Label>
+                  <Label htmlFor="prospecting-niche">{t("Público ou segmento")}</Label>
                   <Input
-                    id="prospecting-limit"
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={limit}
-                    onChange={(e) => setLimit(Number(e.target.value))}
+                    id="prospecting-niche"
+                    value={niche}
+                    onChange={(e) => setNiche(e.target.value)}
+                    placeholder={t("Ex.: clínicas de estética")}
+                    minLength={2}
+                    maxLength={120}
                     required
                     className="mt-1"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="prospecting-budget">{t("Teto da busca (US$)")}</Label>
+                  <Label htmlFor="prospecting-location">{t("Cidade ou região")}</Label>
                   <Input
-                    id="prospecting-budget"
-                    type="number"
-                    min={0.5}
-                    max={10}
-                    step={0.5}
-                    value={budget}
-                    onChange={(e) => setBudget(Number(e.target.value))}
+                    id="prospecting-location"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder={t("Ex.: São Paulo, SP")}
+                    minLength={2}
+                    maxLength={160}
                     required
                     className="mt-1"
                   />
                 </div>
-              </div>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={enrich}
-                  onChange={(e) => setEnrich(e.target.checked)}
-                  className="mt-1"
-                />
-                {t("Enriquecer com e-mails comerciais e redes encontradas no site")}
-              </label>
-              {conhecidosDaBusca > 0 && (
-                <p role="status" className="rounded-md border bg-muted/30 p-3 text-xs">
-                  {conhecidosDaBusca}{" "}
-                  {t("empresas desta busca já estão nas suas campanhas e não vão se repetir.")}{" "}
-                  {t("Para trazer novas, a busca vai olhar até")}{" "}
-                  {alcanceDaBusca(limit || 0, conhecidosDaBusca)}{" "}
-                  {t("lugares no Maps, dentro do teto de gasto.")}
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                {t(
-                  "A pesquisa usa seu saldo da Apify. A quantidade encontrada pode ser menor que o limite. Nenhuma abordagem começa nesta etapa.",
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="prospecting-limit">{t("Até quantas empresas")}</Label>
+                    <Input
+                      id="prospecting-limit"
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={limit}
+                      onChange={(e) => setLimit(Number(e.target.value))}
+                      required
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="prospecting-budget">{t("Teto da busca (US$)")}</Label>
+                    <Input
+                      id="prospecting-budget"
+                      type="number"
+                      min={0.5}
+                      max={10}
+                      step={0.5}
+                      value={budget}
+                      onChange={(e) => setBudget(Number(e.target.value))}
+                      required
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={enrich}
+                    onChange={(e) => setEnrich(e.target.checked)}
+                    className="mt-1"
+                  />
+                  {t("Enriquecer com e-mails comerciais e redes encontradas no site")}
+                </label>
+                {conhecidosDaBusca > 0 && (
+                  <p role="status" className="rounded-md border bg-muted/30 p-3 text-xs">
+                    {conhecidosDaBusca}{" "}
+                    {t("empresas desta busca já estão nas suas campanhas e não vão se repetir.")}{" "}
+                    {t("Para trazer novas, a busca vai olhar até")}{" "}
+                    {alcanceDaBusca(limit || 0, conhecidosDaBusca)}{" "}
+                    {t("lugares no Maps, dentro do teto de gasto.")}
+                  </p>
                 )}
-              </p>
-              <Button className="w-full" type="submit" disabled={busy || !data?.configured}>
-                {busy ? t("Aguarde…") : t("Buscar empresas")}
-              </Button>
-            </form>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    "A pesquisa usa seu saldo da Apify. A quantidade encontrada pode ser menor que o limite. Nenhuma abordagem começa nesta etapa.",
+                  )}
+                </p>
+                <Button className="w-full" type="submit" disabled={busy || !data?.configured}>
+                  {busy ? t("Aguarde…") : t("Buscar empresas")}
+                </Button>
+              </form>
             )}
           </Card>
           <section>
@@ -456,6 +568,9 @@ export function ProspectingClient() {
                     setSelected(c.id);
                     setFiltro({ tipo: "todos" });
                     setNotice(null);
+                    // A confirmação de exclusão vale para UMA campanha: ao trocar, ela some.
+                    setConfirmandoExclusao(false);
+                    setMostrarDesmarcadas(false);
                   }}
                   className={`w-full rounded-lg border p-3 text-left ${campaign?.id === c.id ? "border-primary bg-primary/5" : "bg-card"}`}
                 >
@@ -585,36 +700,114 @@ export function ProspectingClient() {
                   </p>
                 )}
                 {campaign.config && (
-                  <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-                    <p className="text-sm text-muted-foreground">
-                      {t("Ritmo:")} {campaign.config.daily_limit}{" "}
-                      {t("abordagens em 24 horas, com pelo menos")}{" "}
-                      {campaign.config.interval_minutes} {t("minutos entre elas.")}
-                    </p>
-                    {campaign.status === "running" ? (
-                      <Button
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() =>
-                          perform(
-                            { action: "pause", id: campaign.id },
-                            t("Novas abordagens pausadas."),
-                          )
-                        }
+                  <>
+                    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                      <p className="text-sm text-muted-foreground">
+                        {t("Ritmo:")} {campaign.config.daily_limit}{" "}
+                        {t("abordagens em 24 horas, com pelo menos")}{" "}
+                        {campaign.config.interval_minutes} {t("minutos entre elas.")}
+                      </p>
+                      {campaign.status === "running" ? (
+                        <Button
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() =>
+                            perform(
+                              { action: "pause", id: campaign.id },
+                              t("Novas abordagens pausadas."),
+                            )
+                          }
+                        >
+                          {t("Pausar abordagens")}
+                        </Button>
+                      ) : campaign.status === "paused" ? (
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            variant="outline"
+                            disabled={busy}
+                            onClick={() => alternarEdicaoDoRitmo(campaign)}
+                          >
+                            {t("Editar ritmo")}
+                          </Button>
+                          <Button
+                            disabled={busy}
+                            onClick={() =>
+                              perform(
+                                { action: "resume", id: campaign.id },
+                                t("Campanha retomada."),
+                              )
+                            }
+                          >
+                            {t("Retomar fila")}
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+                    {campaign.status === "paused" && ritmo?.campaignId === campaign.id && (
+                      <form
+                        className="mt-4 space-y-3 rounded-md border p-4"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          void salvarRitmo();
+                        }}
                       >
-                        {t("Pausar abordagens")}
-                      </Button>
-                    ) : campaign.status === "paused" ? (
-                      <Button
-                        disabled={busy}
-                        onClick={() =>
-                          perform({ action: "resume", id: campaign.id }, t("Campanha retomada."))
-                        }
-                      >
-                        {t("Retomar fila")}
-                      </Button>
-                    ) : null}
-                  </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <Label htmlFor="prospecting-pace-daily">
+                              {t("Máximo em 24 horas")}
+                            </Label>
+                            <Input
+                              id="prospecting-pace-daily"
+                              type="number"
+                              min={1}
+                              max={50}
+                              required
+                              value={ritmo.daily_limit}
+                              onChange={(e) =>
+                                setRitmo({ ...ritmo, daily_limit: Number(e.target.value) })
+                              }
+                              className="mt-1"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="prospecting-pace-spacing">
+                              {t("Intervalo mínimo (minutos)")}
+                            </Label>
+                            <Input
+                              id="prospecting-pace-spacing"
+                              type="number"
+                              min={5}
+                              max={1440}
+                              required
+                              value={ritmo.interval_minutes}
+                              onChange={(e) =>
+                                setRitmo({ ...ritmo, interval_minutes: Number(e.target.value) })
+                              }
+                              className="mt-1"
+                            />
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {t(
+                            "Só dá para ajustar com a campanha pausada. Ao retomar, o próximo envio já usa o ritmo novo. Limite de 1 a 50 por dia e intervalo de 5 a 1440 minutos.",
+                          )}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <Button type="submit" disabled={busy || !ritmoValido}>
+                            {t("Salvar ritmo")}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={busy}
+                            onClick={() => setRitmo(null)}
+                          >
+                            {t("Cancelar")}
+                          </Button>
+                        </div>
+                      </form>
+                    )}
+                  </>
                 )}
               </Card>
               {campaign.status === "draft" &&
@@ -843,6 +1036,11 @@ export function ProspectingClient() {
                                     "Descreva sua oferta e o objetivo da primeira conversa.",
                                   )}
                                 />
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {t(
+                                    "Este texto se soma ao prompt do agente nas conversas desta campanha. Se você mudar o prompt do agente, confira se os dois ainda dizem a mesma coisa.",
+                                  )}
+                                </p>
                               </div>
                               <div>
                                 <Label htmlFor="prospecting-qualification">
@@ -893,6 +1091,43 @@ export function ProspectingClient() {
                               />
                             </div>
                           </div>
+                          <fieldset className="space-y-2">
+                            <legend className="text-sm font-medium">
+                              {t("Quando a empresa entra no funil")}
+                            </legend>
+                            <label className="flex items-start gap-2 text-sm">
+                              <input
+                                type="radio"
+                                name="prospecting-funnel-entry"
+                                checked={(config.funnel_entry ?? "on_start") === "on_send"}
+                                onChange={() => update("funnel_entry", "on_send")}
+                                className="mt-1"
+                              />
+                              <span>
+                                {t("Só quando for abordada (recomendado)")}
+                                <span className="block text-xs text-muted-foreground">
+                                  {t("O funil mostra só quem já recebeu a primeira mensagem.")}
+                                </span>
+                              </span>
+                            </label>
+                            <label className="flex items-start gap-2 text-sm">
+                              <input
+                                type="radio"
+                                name="prospecting-funnel-entry"
+                                checked={(config.funnel_entry ?? "on_start") === "on_start"}
+                                onChange={() => update("funnel_entry", "on_start")}
+                                className="mt-1"
+                              />
+                              <span>
+                                {t("Todas ao iniciar")}
+                                <span className="block text-xs text-muted-foreground">
+                                  {t(
+                                    "Contato, negócio e conversa de toda a fila são criados na hora de iniciar.",
+                                  )}
+                                </span>
+                              </span>
+                            </label>
+                          </fieldset>
                           <div>
                             <Label htmlFor="prospecting-basis">
                               {t("Referência da avaliação de legítimo interesse")}
@@ -913,9 +1148,13 @@ export function ProspectingClient() {
                             </p>
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {t(
-                              "Ao iniciar, os contatos novos com telefone entram no funil. Contatos já existentes são preservados. A fila faz uma primeira abordagem; respostas seguem no Inbox. Uma mensagem já em transmissão pode concluir após a pausa.",
-                            )}
+                            {(config.funnel_entry ?? "on_start") === "on_send"
+                              ? t(
+                                  "Ao iniciar, as empresas com telefone entram na fila. Cada uma entra no funil só quando for abordada. Contatos já existentes são preservados. A fila faz uma primeira abordagem; respostas seguem no Inbox. Uma mensagem já em transmissão pode concluir após a pausa.",
+                                )
+                              : t(
+                                  "Ao iniciar, os contatos novos com telefone entram no funil. Contatos já existentes são preservados. A fila faz uma primeira abordagem; respostas seguem no Inbox. Uma mensagem já em transmissão pode concluir após a pausa.",
+                                )}
                           </p>
                         </fieldset>
                         <Button
@@ -935,12 +1174,113 @@ export function ProspectingClient() {
               {candidates.length > 0 && (
                 <Card ref={resultados} className="scroll-mt-4 overflow-hidden">
                   <div className="border-b p-5">
-                    <h2 className="text-lg font-semibold">{t("3. Acompanhar resultados")}</h2>
-                    <p className="text-sm text-muted-foreground">
-                      {t(
-                        "Encontrado é diferente de qualificado. A qualificação depende do que for confirmado na conversa.",
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h2 className="text-lg font-semibold">{t("3. Acompanhar resultados")}</h2>
+                        <p className="text-sm text-muted-foreground">
+                          {t(
+                            "Encontrado é diferente de qualificado. A qualificação depende do que for confirmado na conversa.",
+                          )}
+                        </p>
+                      </div>
+                      {canSelect && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            {noRascunho
+                              ? t(
+                                  "Somente as empresas marcadas entram na fila ao iniciar as abordagens.",
+                                )
+                              : t(
+                                  "Com a campanha pausada, marque ou desmarque as empresas que ainda estão na fila. Quem já foi abordado não muda.",
+                                )}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={busy || elegiveis.length === 0 || allSelected}
+                            onClick={() =>
+                              setSelection(
+                                elegiveis.map((c) => c.id),
+                                true,
+                              )
+                            }
+                          >
+                            {t("Marcar todas")}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={busy || noneSelected}
+                            onClick={() =>
+                              setSelection(
+                                elegiveis.map((c) => c.id),
+                                false,
+                              )
+                            }
+                          >
+                            {t("Desmarcar todas")}
+                          </Button>
+                          {desmarcadas.length > 0 && (
+                            <button
+                              type="button"
+                              className="text-xs underline"
+                              onClick={() => setMostrarDesmarcadas((v) => !v)}
+                            >
+                              {mostrarDesmarcadas
+                                ? t("Esconder desmarcadas")
+                                : `${t("Mostrar desmarcadas")} (${desmarcadas.length})`}
+                            </button>
+                          )}
+                          {descartaveis.length > 0 &&
+                            (confirmandoExclusao ? (
+                              <span className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs text-muted-foreground">
+                                  {t(
+                                    "Excluir tira essas empresas da lista. Em outra busca, elas podem aparecer de novo como novas.",
+                                  )}
+                                </span>
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  size="sm"
+                                  disabled={busy}
+                                  onClick={() => void excluirDesmarcadas()}
+                                >
+                                  {t("Confirmar exclusão")}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={busy}
+                                  onClick={() => setConfirmandoExclusao(false)}
+                                >
+                                  {t("Cancelar")}
+                                </Button>
+                              </span>
+                            ) : (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={busy}
+                                onClick={() => setConfirmandoExclusao(true)}
+                              >
+                                {`${t("Excluir desmarcadas")} (${descartaveis.length})`}
+                              </Button>
+                            ))}
+                          {naFilaPausada && !criaSoNoEnvio && (
+                            <span className="basis-full text-xs text-muted-foreground">
+                              {t(
+                                "Esta campanha já criou o contato e o negócio dessas empresas ao iniciar. Desmarcar só impede o envio: elas continuam no funil.",
+                              )}
+                            </span>
+                          )}
+                        </div>
                       )}
-                    </p>
+                    </div>
                     {(filtro.tipo !== "todos" || filtro.motivo) && (
                       <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md bg-muted p-3 text-sm">
                         <span>
@@ -962,6 +1302,25 @@ export function ProspectingClient() {
                     <table className="w-full text-left text-sm">
                       <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
                         <tr>
+                          {canSelect && (
+                            <th className="p-4">
+                              <label className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={allSelected}
+                                  disabled={busy || elegiveis.length === 0}
+                                  onChange={() =>
+                                    setSelection(
+                                      elegiveis.map((c) => c.id),
+                                      !allSelected,
+                                    )
+                                  }
+                                  aria-label={t("Alternar seleção de todas as empresas")}
+                                />
+                                <span>{t("Abordar")}</span>
+                              </label>
+                            </th>
+                          )}
                           <th className="p-4">{t("Empresa")}</th>
                           <th className="p-4">{t("Informações")}</th>
                           <th className="p-4">{t("Progresso")}</th>
@@ -973,7 +1332,7 @@ export function ProspectingClient() {
                         {visiveis.length === 0 && (
                           <tr>
                             <td
-                              colSpan={5}
+                              colSpan={canSelect ? 6 : 5}
                               className="p-6 text-center text-sm text-muted-foreground"
                             >
                               {t("Nenhuma empresa neste filtro.")}
@@ -982,6 +1341,19 @@ export function ProspectingClient() {
                         )}
                         {visiveis.map((c) => (
                           <tr key={c.id} className="border-b last:border-0">
+                            {canSelect && (
+                              <td className="p-4 align-top">
+                                {marcavel(c) && (
+                                  <input
+                                    type="checkbox"
+                                    checked={c.selected !== false}
+                                    disabled={busy}
+                                    onChange={() => setSelection([c.id], c.selected === false)}
+                                    aria-label={t("Marcar empresa para abordagem")}
+                                  />
+                                )}
+                              </td>
+                            )}
                             <td className="p-4 align-top">
                               <p className="font-medium">{c.data.name}</p>
                               <p className="mt-1 text-xs text-muted-foreground">
