@@ -682,10 +682,17 @@ export async function activateCampaign(
       )
     ).rows;
     // Candidatos de antes da régua de aceite (região pedida, telefone) são
-    // reavaliados aqui, antes da escolha e da triagem do original (fork da Genuine).
+    // reavaliados aqui, antes da triagem do original (fork da Genuine). A escolha
+    // do operador vem primeiro: a desmarcada segue para `enfileirarCandidatos`,
+    // que a tira da fila com o motivo dela.
     const aceitos: Candidate[] = [];
     for (const p of candidates) {
-      const recusaDoLegado = motivoDeRecusaDoLegado(p.data, c.search);
+      // O telefone que vale é o da linha (o mesmo que a triagem e o envio usam);
+      // sem busca gravada, não há região pedida a conferir.
+      const recusaDoLegado =
+        p.selected === false
+          ? null
+          : motivoDeRecusaDoLegado({ ...p.data, phone: p.phone }, c.search ?? { location: "" });
       if (recusaDoLegado) {
         await db.query(
           "update prospecting_candidates set status='skipped',error=$3,updated_at=now() where organization_id=$1 and id=$2",
