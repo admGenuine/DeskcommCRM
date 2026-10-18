@@ -1223,316 +1223,306 @@ export function ProspectingClient() {
                     )}
                   </Card>
                 )}
-              {candidates.length > 0 && (
-                <Card ref={resultados} className="scroll-mt-4 overflow-hidden">
-                  <div className="border-b p-5">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <h2 className="text-lg font-semibold">{t("3. Acompanhar resultados")}</h2>
-                        <p className="text-sm text-muted-foreground">
-                          {t(
-                            "Encontrado é diferente de qualificado. A qualificação depende do que for confirmado na conversa.",
-                          )}
-                        </p>
-                      </div>
-                      {canSelect && (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs text-muted-foreground">
-                            {noRascunho
-                              ? t(
-                                  "Somente as empresas marcadas entram na fila ao iniciar as abordagens.",
-                                )
-                              : t(
-                                  "Com a campanha pausada, marque ou desmarque as empresas que ainda estão na fila. Quem já foi abordado não muda.",
-                                )}
-                          </span>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={busy || elegiveis.length === 0 || allSelected}
-                            onClick={() =>
-                              setSelection(
-                                elegiveis.map((c) => c.id),
-                                true,
-                              )
-                            }
-                          >
-                            {t("Marcar todas")}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={busy || noneSelected}
-                            onClick={() =>
-                              setSelection(
-                                elegiveis.map((c) => c.id),
-                                false,
-                              )
-                            }
-                          >
-                            {t("Desmarcar todas")}
-                          </Button>
-                          {desmarcadas.length > 0 && (
-                            <button
-                              type="button"
-                              className="text-xs underline"
-                              onClick={() => setMostrarDesmarcadas((v) => !v)}
-                            >
-                              {mostrarDesmarcadas
-                                ? t("Esconder desmarcadas")
-                                : `${t("Mostrar desmarcadas")} (${desmarcadas.length})`}
-                            </button>
-                          )}
-                          {descartaveis.length > 0 &&
-                            (confirmandoExclusao ? (
-                              <span className="flex flex-wrap items-center gap-2">
-                                <span className="text-xs text-muted-foreground">
-                                  {t(
-                                    "Excluir tira essas empresas da lista. Em outra busca, elas podem aparecer de novo como novas.",
-                                  )}
-                                </span>
-                                <Button
-                                  type="button"
-                                  variant="destructive"
-                                  size="sm"
-                                  disabled={busy}
-                                  onClick={() => void excluirDesmarcadas()}
-                                >
-                                  {t("Confirmar exclusão")}
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={busy}
-                                  onClick={() => setConfirmandoExclusao(false)}
-                                >
-                                  {t("Cancelar")}
-                                </Button>
-                              </span>
-                            ) : (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                disabled={busy}
-                                onClick={() => setConfirmandoExclusao(true)}
-                              >
-                                {`${t("Excluir desmarcadas")} (${descartaveis.length})`}
-                              </Button>
-                            ))}
-                          {naFilaPausada && !criaSoNoEnvio && (
-                            <span className="basis-full text-xs text-muted-foreground">
-                              {t(
-                                "Esta campanha já criou o contato e o negócio dessas empresas ao iniciar. Desmarcar só impede o envio: elas continuam no funil.",
-                              )}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    {buscaConcluida && candidates.length > 0 && (
-                      <div className="mt-3">
-                        <AnaliseDaCampanha
-                          candidates={candidates}
-                          busy={busy}
-                          onAnalisar={() =>
-                            campaign
-                              ? perform(
-                                  { action: "analyze_sites", id: campaign.id },
-                                  t(
-                                    "Análise dos sites pedida. Os sinais aparecem conforme cada site é lido.",
-                                  ),
-                                )
-                              : Promise.resolve(false)
-                          }
-                        />
-                      </div>
-                    )}
-                    {buscaConcluida && candidates.length > 0 && (
-                      <div className="mt-3 flex flex-col gap-2">
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          <span>
-                            {t(
-                              "Nota de 0 a 100: porte, sinais do site, avaliações no Maps e o seu Gostei. Clique na nota para ver os pontos.",
-                            )}
-                          </span>
-                          <button
-                            type="button"
-                            className="underline"
-                            onClick={() => setOrdenarPorNota((v) => !v)}
-                          >
-                            {ordenarPorNota ? t("Ordem da busca") : t("Ordenar pela nota")}
-                          </button>
-                        </div>
-                        {canSelect && (
-                          <FicarComAsMelhores
-                            disputa={naDisputa}
-                            busy={busy}
-                            onAplicar={ficarComAsMelhores}
-                          />
-                        )}
-                      </div>
-                    )}
-                    {(filtro.tipo !== "todos" || filtro.motivo) && (
-                      <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md bg-muted p-3 text-sm">
-                        <span>
-                          {t("Mostrando")} {visiveis.length} {t("de")} {candidates.length}
-                          {filtro.motivo ? `: ${filtro.motivo}` : ""}
-                        </span>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setFiltro({ tipo: "todos" })}
-                        >
-                          {t("Mostrar todas")}
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
-                        <tr>
-                          {canSelect && (
-                            <th className="p-4">
-                              <label className="flex items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  checked={allSelected}
-                                  disabled={busy || elegiveis.length === 0}
-                                  onChange={() =>
-                                    setSelection(
-                                      elegiveis.map((c) => c.id),
-                                      !allSelected,
-                                    )
-                                  }
-                                  aria-label={t("Alternar seleção de todas as empresas")}
-                                />
-                                <span>{t("Abordar")}</span>
-                              </label>
-                            </th>
-                          )}
-                          <th className="p-4">{t("Empresa")}</th>
-                          <th className="p-4">{t("Nota")}</th>
-                          <th className="p-4">{t("Informações")}</th>
-                          <th className="p-4">{t("Progresso")}</th>
-                          <th className="p-4">{t("Conversa")}</th>
-                          <th className="p-4">{t("Sinais do site")}</th>
-                          <th className="p-4">{t("Sua avaliação")}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {visiveis.length === 0 && (
-                          <tr>
-                            <td
-                              colSpan={canSelect ? 8 : 7}
-                              className="p-6 text-center text-sm text-muted-foreground"
-                            >
-                              {t("Nenhuma empresa neste filtro.")}
-                            </td>
-                          </tr>
-                        )}
-                        {linhas.map((c) => (
-                          <tr key={c.id} className="border-b last:border-0">
-                            {canSelect && (
-                              <td className="p-4 align-top">
-                                {marcavel(c) && (
-                                  <input
-                                    type="checkbox"
-                                    checked={c.selected !== false}
-                                    disabled={busy}
-                                    onChange={() => setSelection([c.id], c.selected === false)}
-                                    aria-label={t("Marcar empresa para abordagem")}
-                                  />
-                                )}
-                              </td>
-                            )}
-                            <td className="p-4 align-top">
-                              <p className="font-medium">{c.data.name}</p>
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {c.data.category}
-                              </p>
-                              <p className="mt-1 text-xs">{c.data.phone ?? t("Sem telefone")}</p>
-                            </td>
-                            <td className="p-4 align-top">
-                              <NotaDaEmpresa
-                                score={scores.get(c.id) ?? pontuar(c.data, data?.aprendizado)}
-                              />
-                            </td>
-                            <td className="max-w-64 p-4 align-top">
-                              <p className="text-xs text-muted-foreground">{c.data.address}</p>
-                              {safePublicLink(c.data.website) && (
-                                <a
-                                  className="mt-1 block underline"
-                                  href={safePublicLink(c.data.website)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  {t("Site da empresa")}
-                                </a>
-                              )}
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {c.data.rating ?? "—"} ★ · {c.data.reviews ?? 0} {t("avaliações")}
-                              </p>
-                              {c.data.emails.map((email) => (
-                                <p key={email} className="mt-1 text-xs break-all">
-                                  {email}
-                                </p>
-                              ))}
-                            </td>
-                            <td className="max-w-64 p-4 align-top">
-                              <Badge variant="outline">{t(labels[c.progress] ?? c.progress)}</Badge>
-                              {c.error && (
-                                <p className="mt-2 text-xs text-muted-foreground">{c.error}</p>
-                              )}
-                              {c.message_status && (
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                  {t("Mensagem:")} {c.message_status}
-                                </p>
-                              )}
-                            </td>
-                            <td className="p-4 align-top">
-                              {c.conversation_id && (
-                                <Link
-                                  className="underline"
-                                  href={`/app/inbox?id=${c.conversation_id}`}
-                                >
-                                  {t("Abrir no Inbox")}
-                                </Link>
-                              )}
-                            </td>
-                            <td className="p-4 align-top">
-                              <SinaisDaEmpresa analise={c.data.analise} />
-                            </td>
-                            <td className="p-4 align-top">
-                              <AvaliacaoDaEmpresa
-                                avaliacao={c.data.avaliacao}
-                                busy={busy}
-                                onAvaliar={(nota, motivo) =>
-                                  perform(
-                                    { action: "rate", id: c.id, nota, motivo: motivo || null },
-                                    t(
-                                      "Avaliação salva. As próximas buscas levam em conta o seu gosto.",
-                                    ),
-                                  )
-                                }
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </Card>
-              )}
             </>
           )}
         </div>
       </div>
+      {/* Fork: a parte 3 ocupa a largura toda, abaixo das colunas (a tabela tem 8 colunas). */}
+      {campaign && candidates.length > 0 && (
+        <Card ref={resultados} className="scroll-mt-4 overflow-hidden">
+          <div className="border-b p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold">{t("3. Acompanhar resultados")}</h2>
+                <p className="text-sm text-muted-foreground">
+                  {t(
+                    "Encontrado é diferente de qualificado. A qualificação depende do que for confirmado na conversa.",
+                  )}
+                </p>
+              </div>
+              {canSelect && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {noRascunho
+                      ? t("Somente as empresas marcadas entram na fila ao iniciar as abordagens.")
+                      : t(
+                          "Com a campanha pausada, marque ou desmarque as empresas que ainda estão na fila. Quem já foi abordado não muda.",
+                        )}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || elegiveis.length === 0 || allSelected}
+                    onClick={() =>
+                      setSelection(
+                        elegiveis.map((c) => c.id),
+                        true,
+                      )
+                    }
+                  >
+                    {t("Marcar todas")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || noneSelected}
+                    onClick={() =>
+                      setSelection(
+                        elegiveis.map((c) => c.id),
+                        false,
+                      )
+                    }
+                  >
+                    {t("Desmarcar todas")}
+                  </Button>
+                  {desmarcadas.length > 0 && (
+                    <button
+                      type="button"
+                      className="text-xs underline"
+                      onClick={() => setMostrarDesmarcadas((v) => !v)}
+                    >
+                      {mostrarDesmarcadas
+                        ? t("Esconder desmarcadas")
+                        : `${t("Mostrar desmarcadas")} (${desmarcadas.length})`}
+                    </button>
+                  )}
+                  {descartaveis.length > 0 &&
+                    (confirmandoExclusao ? (
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          {t(
+                            "Excluir tira essas empresas da lista. Em outra busca, elas podem aparecer de novo como novas.",
+                          )}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => void excluirDesmarcadas()}
+                        >
+                          {t("Confirmar exclusão")}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => setConfirmandoExclusao(false)}
+                        >
+                          {t("Cancelar")}
+                        </Button>
+                      </span>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => setConfirmandoExclusao(true)}
+                      >
+                        {`${t("Excluir desmarcadas")} (${descartaveis.length})`}
+                      </Button>
+                    ))}
+                  {naFilaPausada && !criaSoNoEnvio && (
+                    <span className="basis-full text-xs text-muted-foreground">
+                      {t(
+                        "Esta campanha já criou o contato e o negócio dessas empresas ao iniciar. Desmarcar só impede o envio: elas continuam no funil.",
+                      )}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+            {buscaConcluida && candidates.length > 0 && (
+              <div className="mt-3">
+                <AnaliseDaCampanha
+                  candidates={candidates}
+                  busy={busy}
+                  onAnalisar={() =>
+                    campaign
+                      ? perform(
+                          { action: "analyze_sites", id: campaign.id },
+                          t(
+                            "Análise dos sites pedida. Os sinais aparecem conforme cada site é lido.",
+                          ),
+                        )
+                      : Promise.resolve(false)
+                  }
+                />
+              </div>
+            )}
+            {buscaConcluida && candidates.length > 0 && (
+              <div className="mt-3 flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span>
+                    {t(
+                      "Nota de 0 a 100: porte, sinais do site, avaliações no Maps e o seu Gostei. Clique na nota para ver os pontos.",
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    className="underline"
+                    onClick={() => setOrdenarPorNota((v) => !v)}
+                  >
+                    {ordenarPorNota ? t("Ordem da busca") : t("Ordenar pela nota")}
+                  </button>
+                </div>
+                {canSelect && (
+                  <FicarComAsMelhores
+                    disputa={naDisputa}
+                    busy={busy}
+                    onAplicar={ficarComAsMelhores}
+                  />
+                )}
+              </div>
+            )}
+            {(filtro.tipo !== "todos" || filtro.motivo) && (
+              <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md bg-muted p-3 text-sm">
+                <span>
+                  {t("Mostrando")} {visiveis.length} {t("de")} {candidates.length}
+                  {filtro.motivo ? `: ${filtro.motivo}` : ""}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setFiltro({ tipo: "todos" })}
+                >
+                  {t("Mostrar todas")}
+                </Button>
+              </div>
+            )}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
+                <tr>
+                  {canSelect && (
+                    <th className="p-4">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          disabled={busy || elegiveis.length === 0}
+                          onChange={() =>
+                            setSelection(
+                              elegiveis.map((c) => c.id),
+                              !allSelected,
+                            )
+                          }
+                          aria-label={t("Alternar seleção de todas as empresas")}
+                        />
+                        <span>{t("Abordar")}</span>
+                      </label>
+                    </th>
+                  )}
+                  <th className="min-w-48 p-4">{t("Empresa")}</th>
+                  <th className="min-w-32 p-4">{t("Nota")}</th>
+                  <th className="min-w-52 p-4">{t("Informações")}</th>
+                  <th className="p-4">{t("Progresso")}</th>
+                  <th className="p-4">{t("Conversa")}</th>
+                  <th className="min-w-52 p-4">{t("Sinais do site")}</th>
+                  <th className="min-w-44 p-4">{t("Sua avaliação")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visiveis.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={canSelect ? 8 : 7}
+                      className="p-6 text-center text-sm text-muted-foreground"
+                    >
+                      {t("Nenhuma empresa neste filtro.")}
+                    </td>
+                  </tr>
+                )}
+                {linhas.map((c) => (
+                  <tr key={c.id} className="border-b last:border-0">
+                    {canSelect && (
+                      <td className="p-4 align-top">
+                        {marcavel(c) && (
+                          <input
+                            type="checkbox"
+                            checked={c.selected !== false}
+                            disabled={busy}
+                            onChange={() => setSelection([c.id], c.selected === false)}
+                            aria-label={t("Marcar empresa para abordagem")}
+                          />
+                        )}
+                      </td>
+                    )}
+                    <td className="p-4 align-top">
+                      <p className="font-medium">{c.data.name}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{c.data.category}</p>
+                      <p className="mt-1 text-xs">{c.data.phone ?? t("Sem telefone")}</p>
+                    </td>
+                    <td className="p-4 align-top">
+                      <NotaDaEmpresa
+                        score={scores.get(c.id) ?? pontuar(c.data, data?.aprendizado)}
+                      />
+                    </td>
+                    <td className="max-w-64 p-4 align-top">
+                      <p className="text-xs text-muted-foreground">{c.data.address}</p>
+                      {safePublicLink(c.data.website) && (
+                        <a
+                          className="mt-1 block underline"
+                          href={safePublicLink(c.data.website)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {t("Site da empresa")}
+                        </a>
+                      )}
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {c.data.rating ?? "—"} ★ · {c.data.reviews ?? 0} {t("avaliações")}
+                      </p>
+                      {c.data.emails.map((email) => (
+                        <p key={email} className="mt-1 text-xs break-all">
+                          {email}
+                        </p>
+                      ))}
+                    </td>
+                    <td className="max-w-64 p-4 align-top">
+                      <Badge variant="outline">{t(labels[c.progress] ?? c.progress)}</Badge>
+                      {c.error && <p className="mt-2 text-xs text-muted-foreground">{c.error}</p>}
+                      {c.message_status && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {t("Mensagem:")} {c.message_status}
+                        </p>
+                      )}
+                    </td>
+                    <td className="p-4 align-top">
+                      {c.conversation_id && (
+                        <Link className="underline" href={`/app/inbox?id=${c.conversation_id}`}>
+                          {t("Abrir no Inbox")}
+                        </Link>
+                      )}
+                    </td>
+                    <td className="p-4 align-top">
+                      <SinaisDaEmpresa analise={c.data.analise} />
+                    </td>
+                    <td className="p-4 align-top">
+                      <AvaliacaoDaEmpresa
+                        avaliacao={c.data.avaliacao}
+                        busy={busy}
+                        onAvaliar={(nota, motivo) =>
+                          perform(
+                            { action: "rate", id: c.id, nota, motivo: motivo || null },
+                            t("Avaliação salva. As próximas buscas levam em conta o seu gosto."),
+                          )
+                        }
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
     </main>
   );
 }

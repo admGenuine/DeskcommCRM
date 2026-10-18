@@ -51,6 +51,7 @@ A prospecção é o módulo que o fork mais mexe, e o original também evolui ne
 | `app/app/prospecting/_client.tsx` | Os contadores-filtro do fork somam com a seleção do original: a lista visível esconde as desmarcadas (original) e aplica o filtro do contador (fork) |
 | `lib/prospecting/worker.ts`, fim de `tickProspecting` | A rodada da análise de sites do fork (`sinais/fila.ts`) roda depois do laço das organizações, fora do lock, até 200s desde o começo da rodada |
 | `app/app/prospecting/_client.tsx`, seleção | "Ficar só com as melhores" (score do fork, `lib/prospecting/score.ts`) não tem ação própria: usa `select` na preparação e `select_in_queue` na fila pausada, do original, e só sobre as linhas que essas ações alteram |
+| `app/app/prospecting/_client.tsx`, parte 3 | O cartão "3. Acompanhar resultados" saiu da coluna da direita e fica abaixo da grade, na largura toda (a tabela tem 8 colunas). Num merge do original que mexa nesse cartão, o conflito aparece aqui |
 
 ### Migrations do fork
 
