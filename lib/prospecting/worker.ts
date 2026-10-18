@@ -20,6 +20,8 @@ import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { conferirWhatsappDoCandidato } from "./aceite/whatsapp";
 import { analisarSitesPendentes } from "./sinais/fila";
+import { lerSitesComIaPendentes } from "./sinais/fila-ia";
+import { chamarModeloPeloSeam } from "./sinais/ia-modelo";
 import { assertProspectingDelivery } from "./guard";
 import { campaignConfigSchema } from "./schema";
 import { ProspectingError } from "./provider";
@@ -525,5 +527,18 @@ export async function tickProspecting(pool: pg.Pool, admin: SupabaseClient) {
       error: error instanceof Error ? error.message : String(error),
     });
   }
-  return { processed, analisadas };
+  // Fase 3b: a leitura por IA que o dono pediu (`sinais/fila-ia.ts`), com o
+  // tempo que sobrar até o mesmo limite de 200s. Sem tempo nesta rodada, fica
+  // para a próxima (o agendador chama a cada minuto).
+  let lidasComIa = 0;
+  try {
+    lidasComIa = await lerSitesComIaPendentes(pool, deadline + 20_000, {
+      chamarModelo: chamarModeloPeloSeam(pool),
+    });
+  } catch (error) {
+    logger.error("[prospecting] rodada de leitura por IA falhou", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return { processed, analisadas, lidasComIa };
 }

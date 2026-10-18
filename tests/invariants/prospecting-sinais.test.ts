@@ -8,6 +8,7 @@ import {
   reivindicarPendentes,
 } from "@/lib/prospecting/sinais/fila";
 import type { Leitura } from "@/lib/prospecting/sinais/leitor";
+import { VERSAO_DA_ANALISE } from "@/lib/prospecting/sinais/tipos";
 
 import { sql } from "./gov-helpers";
 
@@ -37,7 +38,7 @@ const CAMP_A = "5e1c0da0-1111-4000-8000-00000000000a";
 const CAMP_B = "5e1c0da0-1111-4000-8000-00000000000b";
 const CAMP_P = "5e1c0da0-1111-4000-8000-00000000000c";
 
-const analiseOk = (dias: number, versao = 2) =>
+const analiseOk = (dias: number, versao = VERSAO_DA_ANALISE) =>
   JSON.stringify({
     status: "ok",
     pedida_em: "2026-01-01T00:00:00Z",
@@ -84,7 +85,7 @@ beforeAll(() => {
 
 describe("fila da análise de sites contra o baseline", () => {
   it("pedir marca só as da campanha, da organização, não recusadas e sem análise válida", async () => {
-    // sem análise, análise vencida e análise recente feita pela versão 1 das réguas
+    // sem análise, análise vencida e análise recente feita por uma versão anterior das réguas
     expect(await pedirAnaliseDaCampanha(pool, ORG_A, CAMP_A)).toEqual({ pedidas: 3 });
     expect(status("5e1c0da0-2222-4000-8000-0000000000a5")).toBe("pendente");
     expect(status("5e1c0da0-2222-4000-8000-0000000000a1")).toBe("pendente");

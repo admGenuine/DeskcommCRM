@@ -57692,3 +57692,18 @@ revoke all on public.prospecting_market_companies from public, anon, authenticat
 grant all on public.prospecting_market_companies to service_role;
 
 notify pgrst, 'reload schema';
+
+-- ---- gasto da leitura por IA por campanha (migration 9003, fork da Genuine) ----
+alter table public.prospecting_campaigns
+  add column if not exists gasto_ia_centavos numeric(12,4) not null default 0;
+
+alter table public.prospecting_campaigns
+  drop constraint if exists prospecting_campaigns_gasto_ia_centavos_check;
+alter table public.prospecting_campaigns
+  add constraint prospecting_campaigns_gasto_ia_centavos_check
+  check (gasto_ia_centavos >= 0);
+
+comment on column public.prospecting_campaigns.gasto_ia_centavos is
+  'Gasto acumulado da leitura dos sites por IA nesta campanha, em centavos de dólar (fork da Genuine, Fase 3b). Só cresce; o teto por campanha é lido contra ele.';
+
+notify pgrst, 'reload schema';

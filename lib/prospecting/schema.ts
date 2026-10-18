@@ -115,6 +115,8 @@ export const prospectingInputSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("discard_unselected"), id: z.string().uuid() }).strict(),
   // Fork da Genuine: pede a análise dos sites das empresas da campanha (`sinais/fila.ts`).
   z.object({ action: z.literal("analyze_sites"), id: z.string().uuid() }).strict(),
+  // Fase 3b: leitura dos sites por IA, paga, com teto por campanha (`sinais/fila-ia.ts`).
+  z.object({ action: z.literal("read_sites_ai"), id: z.string().uuid() }).strict(),
 ]);
 export type CampaignConfig = z.infer<typeof campaignConfigSchema>;
 export type CampaignPace = Pick<CampaignConfig, "daily_limit" | "interval_minutes">;

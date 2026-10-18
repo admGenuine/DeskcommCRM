@@ -14,6 +14,7 @@ import { avaliarEmpresa, marcarReferencia } from "@/lib/prospecting/avaliacao";
 import { carregarPerfilAprendido } from "@/lib/prospecting/perfil-aprendido";
 import { criarCampanhaDoMercado } from "@/lib/prospecting/mercado/campanha";
 import { pedirAnaliseDaCampanha } from "@/lib/prospecting/sinais/fila";
+import { pedirLeituraIaDaCampanha } from "@/lib/prospecting/sinais/fila-ia";
 import {
   activateCampaign,
   adjustPace,
@@ -58,7 +59,7 @@ export async function GET(req: NextRequest) {
           org,
         ]),
         db.query(
-          "select id,name,search,config,status,search_status,run_id,cost_usd,result_count,skipped_count,error,next_send_at,created_at,referencia_em,referencia_motivo from prospecting_campaigns where organization_id=$1 order by created_at desc limit 50",
+          "select id,name,search,config,status,search_status,run_id,cost_usd,result_count,skipped_count,error,next_send_at,created_at,referencia_em,referencia_motivo,gasto_ia_centavos from prospecting_campaigns where organization_id=$1 order by created_at desc limit 50",
           [org],
         ),
         db.query(
@@ -162,6 +163,10 @@ export async function POST(req: NextRequest) {
       auditMetadata = { operation: body.action, limite: body.limite };
     } else if (body.action === "analyze_sites") {
       const pedido = await pedirAnaliseDaCampanha(pool, org, body.id);
+      result = pedido;
+      auditMetadata = { operation: body.action, pedidas: pedido.pedidas };
+    } else if (body.action === "read_sites_ai") {
+      const pedido = await pedirLeituraIaDaCampanha(pool, org, body.id);
       result = pedido;
       auditMetadata = { operation: body.action, pedidas: pedido.pedidas };
     } else if (body.action === "pause") {

@@ -215,7 +215,13 @@ Cascata de fontes, cache, livro-razão de custo e sinais com prova.
 - **Perfil:** Instagram, Facebook e LinkedIn achados no site.
 - **Onde fica gravado:** em `prospecting_candidates.data.analise`, válida por 180 dias. Sai junto na anonimização da LGPD, que reescreve o `data`. Sem migration.
 
-**3b, com custo (a decidir):** leitura por IA dos sites para os sinais ambíguos, e o Maps para as empresas do Mercado sem site. Precisa de teto de gasto definido pelo dono antes.
+**3b (decisões do dono em 17/10/2026):** leitura por IA só quando o dono clica, com teto de US$ 1,00 por campanha; o Maps para as empresas do Mercado sem site, com teto de US$ 1,00 por campanha (saldo da Apify); e o porte das empresas do Maps pela base da Receita, de graça.
+
+- **Porte pela Receita (grátis, feito em 18/10/2026).** Código em `lib/prospecting/sinais/receita.ts`. A análise grátis procura a empresa do Maps em `prospecting_market_companies`, na mesma cidade e UF: primeiro pelo telefone (DDD e os últimos 8 dígitos), depois pelo nome (todas as palavras próprias do nome do Maps na razão social ou no nome fantasia). Só vale achado único: dois CNPJs possíveis ficam sem porte. Grava em `analise.receita`, e a nota usa o porte achado. A versão das réguas subiu para 3, então as análises antigas podem ser pedidas de novo pelo botão "Analisar sites". Só acha quem está no recorte da base (indústrias de alimentos do PR e de SC).
+- **Leitura por IA (paga, feita em 18/10/2026).** Código em `lib/prospecting/sinais/ia.ts` e `fila-ia.ts`. O botão "Ler com IA" põe na fila as empresas com site lido pela análise atual. O worker lê de novo as mesmas páginas e pergunta ao modelo um resumo, os produtos e os sinais que dependem do texto (distribuidores, vagas comerciais, SIF, SIE ou SIM, varejo). Todo sinal da IA precisa de um trecho literal da página, conferido antes de gravar; o que não está escrito é descartado. O sinal da IA aparece com " · IA" na tela.
+  - **Modelo:** o ponto de IA `prospecting_site_read`, configurável em IA › Provedores. Sem escolha, é o modelo mais barato do provedor da organização.
+  - **Teto:** `TETO_DA_IA_POR_CAMPANHA_CENTAVOS` (100 = US$ 1,00), contra `prospecting_campaigns.gasto_ia_centavos` (migration 9003). Antes de cada leitura o worker reserva 3 centavos, só se couber no teto, e depois troca pelo custo real. Quem não cabe fica como "teto atingido". O custo de cada leitura também vai para a tela de uso de IA (`llm_calls`). O teto mensal de IA da organização continua valendo por cima.
+- **Maps para as empresas do Mercado sem site:** a fazer, numa entrega própria.
 
 ### Fase 4: score e aprovação (etapas 5 e 6)
 

@@ -39,6 +39,22 @@ describe("a nota de uma empresa", () => {
     );
   });
 
+  it("empresa do Maps achada na Receita ganha o porte, com a razão social de detalhe", () => {
+    const receita = {
+      cnpj: "22222222000102",
+      razao_social: "IMPERIO DAS AVES LTDA",
+      porte: "EPP",
+      criterio: "telefone" as const,
+    };
+    expect(pontuar({ ...base, analise: { ...analise([]), receita } }, null).itens).toEqual([
+      { pontos: 12, motivo: MOTIVOS_DO_SCORE.porte_EPP, detalhe: "IMPERIO DAS AVES LTDA" },
+    ]);
+    // o porte declarado (veio do Mercado) manda sobre o achado
+    expect(
+      pontuar({ ...base, porte: "DEMAIS", analise: { ...analise([]), receita } }, null).itens,
+    ).toEqual([{ pontos: 20, motivo: MOTIVOS_DO_SCORE.porte_DEMAIS }]);
+  });
+
   it("por enquanto o pixel só informa se a empresa anuncia: não soma nem tira ponto", () => {
     // Decisão do dono em 17/10/2026. Se o peso subir, este teste é o lembrete de rever a tela.
     expect(PESOS_DO_SCORE.sem_pixel_de_anuncio).toBe(0);

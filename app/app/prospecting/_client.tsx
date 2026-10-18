@@ -42,6 +42,8 @@ type Campaign = {
   next_send_at: string;
   referencia_em: string | null;
   referencia_motivo: string | null;
+  /** Fork, Fase 3b: o gasto da leitura por IA, em centavos de dólar (numeric do Postgres). */
+  gasto_ia_centavos?: string | number | null;
 };
 type Candidate = {
   id: string;
@@ -1350,6 +1352,15 @@ export function ProspectingClient() {
                           ),
                         )
                       : Promise.resolve(false)
+                  }
+                  gastoIaCentavos={Number(campaign.gasto_ia_centavos ?? 0)}
+                  onLerComIa={() =>
+                    perform(
+                      { action: "read_sites_ai", id: campaign.id },
+                      t(
+                        "Leitura por IA pedida. O resumo e os sinais aparecem conforme cada site é lido.",
+                      ),
+                    )
                   }
                 />
               </div>

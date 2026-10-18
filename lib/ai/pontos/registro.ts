@@ -249,6 +249,19 @@ export const PONTOS_DE_IA: readonly PontoDeIa[] = [
     registraEm: "llm_calls",
   },
   {
+    // Fork da Genuine (Fase 3b da prospecção): ver docs/genuine/PLANO-PROSPECCAO.md.
+    id: "prospecting_site_read",
+    rotulo: "Ler o site das empresas da prospecção",
+    oQueFaz:
+      "Quando o administrador pede, lê o site das empresas de uma campanha de prospecção e traz um resumo, os produtos e sinais como 'procura distribuidores', sempre com o trecho do site que prova. Tem teto de gasto por campanha.",
+    papel: "entender",
+    exige: {},
+    emissor: "lib/prospecting/sinais/ia-modelo.ts",
+    sintomaDeFalha:
+      "A empresa fica com a leitura por IA marcada como falha na tela da prospecção; os sinais da leitura grátis continuam valendo e a leitura pode ser pedida de novo.",
+    registraEm: "llm_calls",
+  },
+  {
     id: "draft_suggestion",
     rotulo: "Sugerir resposta ao atendente",
     oQueFaz:
