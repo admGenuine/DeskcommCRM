@@ -145,7 +145,7 @@ O público-alvo é quem **fabrica** alimentos. Isso muda o ponto de partida, o f
 - **Recorte de mercado inicial**: quais grupos da divisão 10 entram primeiro, se bebidas (divisão 11) entram, e quais UFs.
 - **Porte mínimo**: a partir de qual porte ou capital social uma indústria vale a abordagem.
 - **Quadro de sócios**: o Deskcomm apaga esse dado de propósito (`semSocios`, em `lib/crm-b2b/enrich.ts`) por LGPD. Usá-lo para achar o decisor exige registrar base legal de legítimo interesse B2B. Não mude essa regra sem minha aprovação.
-- **Pesos do score e nota de corte.**
+- **Pesos do score e nota de corte.** Pesos decididos em 17/10/2026 (Fase 4); a nota de corte fica a cada campanha, na tela.
 - **Fontes pagas** e o teto de gasto por busca.
 
 ## Fases e critérios de pronto
@@ -220,6 +220,27 @@ Cascata de fontes, cache, livro-razão de custo e sinais com prova.
 ### Fase 4: score e aprovação (etapas 5 e 6)
 
 Score explicável por dimensão e tela de revisão com corte por nota ou top N.
+
+**Feito em 17/10/2026.** Código em `lib/prospecting/score.ts` (regras) e `app/app/prospecting/_score.tsx` (tela). A nota é calculada na hora a partir do que o candidato já tem, então não grava nada e não precisa de migration: mudar um peso muda a nota de todas as empresas, inclusive as já encontradas.
+
+| Item | Pontos |
+|---|---|
+| Porte DEMAIS / EPP / ME | 20 / 12 / 6 |
+| Procura distribuidores | 15 |
+| Contratando equipe comercial | 10 |
+| Tem SIF / tem SIE ou SIM (só um conta) | 10 / 5 |
+| Vende no varejo | 10 |
+| Site fraco: sem site, fora do ar, sem cadeado ou desatualizado (conta uma vez) | 5 |
+| 20 ou mais avaliações no Maps | 5 |
+| Gostei na empresa, ou categoria aprovada com Gostei | 10 |
+| Pixel de anúncio | 0 (só informa) |
+
+Com tudo a favor, a nota hoje chega a 85.
+
+- **Na tela:** coluna "Nota" com o porquê de cada ponto (clique na nota) e a tabela ordenada pela nota, com volta para a ordem da busca. O pixel aparece ao lado da nota ("Sem pixel de anúncio", "Com pixel de anúncio" ou "Pixel não confirmado").
+- **Ficar só com as melhores:** na preparação da campanha, e na fila pausada, por nota mínima, por quantas no máximo, ou pelas duas regras. Usa a seleção que a campanha já tem: marca quem fica e desmarca quem sai, sem apagar ninguém. Avisa quantas empresas ainda estão sem análise do site, porque a nota delas pode subir depois de analisar.
+
+**Observação (dono, 17/10/2026): pixel de anúncio.** Por enquanto o pixel só informa se a empresa anuncia ou não, e não soma ponto. No futuro ele pode valer mais, para dar nota maior a quem ainda não anuncia (espaço para tráfego pago). Para mudar, basta trocar o peso `sem_pixel_de_anuncio` em `lib/prospecting/score.ts`. O teste `lib/prospecting/score.test.ts` trava o 0 de propósito, para lembrar de rever a tela junto.
 
 ### Fase 5: decisor (etapa 7)
 
