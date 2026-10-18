@@ -95,6 +95,32 @@ export async function startSearch(key: string, input: SearchInput, alcance = inp
     ),
   ).data;
 }
+/**
+ * Fork da Genuine (Fase 3b): procurar no Maps empresas que JÁ se conhece (do
+ * Mercado, sem site), uma por termo ("nome cidade UF"), e só o primeiro lugar
+ * de cada termo. Uma execução para o lote todo, com o teto de gasto na própria
+ * execução (`maxTotalChargeUsd`).
+ */
+export async function startLookup(key: string, termos: string[], budgetUsd: number) {
+  // Sem repetição no POST, pelo mesmo motivo de `startSearch`.
+  return runSchema.parse(
+    await providerRequest(
+      key,
+      `acts/${ACTOR}/runs?maxItems=${termos.length}&maxTotalChargeUsd=${budgetUsd.toFixed(2)}&timeout=600`,
+      {
+        searchStringsArray: termos,
+        maxCrawledPlacesPerSearch: 1,
+        language: "pt-BR",
+        countryCode: "br",
+        skipClosedPlaces: true,
+        scrapeContacts: false,
+        maxReviews: 0,
+        maxImages: 0,
+        maximumLeadsEnrichmentRecords: 0,
+      },
+    ),
+  ).data;
+}
 export async function readSearch(key: string, id: string) {
   return runSchema.parse(await providerRequest(key, `actor-runs/${encodeURIComponent(id)}`)).data;
 }

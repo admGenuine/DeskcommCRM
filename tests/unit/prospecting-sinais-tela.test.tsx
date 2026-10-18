@@ -7,7 +7,15 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AnaliseDaCampanha, SinaisDaEmpresa, contarAnalises } from "@/app/app/prospecting/_sinais";
+import {
+  AnaliseDaCampanha,
+  BuscaNoMapsDaEmpresa,
+  SinaisDaEmpresa,
+  contarAnalises,
+  contarBuscasNoMaps,
+  contarLeiturasIa,
+} from "@/app/app/prospecting/_sinais";
+import { leituraIaPendente } from "@/lib/prospecting/sinais/ia";
 import { analisePendente, type Analise } from "@/lib/prospecting/sinais/tipos";
 
 afterEach(cleanup);
@@ -107,5 +115,191 @@ describe("analisar os sites da campanha", () => {
     expect(
       (screen.getByRole("button", { name: "Analisar sites" }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+});
+
+describe("leitura por IA (Fase 3b)", () => {
+  const lida = {
+    ...leituraIaPendente(new Date("2026-10-18T00:00:00Z")),
+    status: "ok" as const,
+    resumo: "Fabrica queijos e iogurtes artesanais.",
+    produtos: ["Queijos", "Iogurtes"],
+    sinais_novos: 1,
+  };
+
+  it("o sinal da IA vem marcado, e o resumo, os produtos e a Receita aparecem", () => {
+    render(
+      <SinaisDaEmpresa
+        analise={{
+          ...ok,
+          sinais: [
+            ...ok.sinais,
+            {
+              tipo: "vende_em_varejo",
+              evidencia: "Encontre nos supermercados da região",
+              link: "https://www.serra.com.br/",
+              fonte: "ia",
+            },
+          ],
+          receita: {
+            cnpj: "22222222000102",
+            razao_social: "LATICINIOS SERRA LTDA",
+            porte: "EPP",
+            criterio: "telefone",
+          },
+          ia: lida,
+        }}
+      />,
+    );
+    expect(screen.getByRole("link", { name: "Vende no varejo · IA" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Procura distribuidores" })).toBeTruthy();
+    expect(screen.getByText("Fabrica queijos e iogurtes artesanais.")).toBeTruthy();
+    expect(screen.getByText(/Queijos, Iogurtes/)).toBeTruthy();
+    expect(screen.getByText(/LATICINIOS SERRA LTDA/).textContent).toContain("achada pelo telefone");
+  });
+
+  it("leitura que falhou ou parou no teto mostra o porquê", () => {
+    render(
+      <SinaisDaEmpresa
+        analise={{ ...ok, ia: { ...lida, status: "teto", observacao: "O teto foi atingido." } }}
+      />,
+    );
+    expect(screen.getByText("O teto foi atingido.")).toBeTruthy();
+  });
+
+  const comSite = { status: "new", data: { analise: ok } };
+  const candidatos = [
+    comSite,
+    comSite,
+    { status: "new", data: { analise: { ...ok, ia: lida } } },
+    { status: "new", data: { analise: { ...ok, ia: { ...lida, status: "pendente" as const } } } },
+    { status: "new", data: { analise: { ...ok, ia: { ...lida, status: "falhou" as const } } } },
+    // sem site lido não tem o que a IA ler
+    { status: "new", data: { analise: { ...ok, status: "sem_site" as const } } },
+    { status: "skipped", data: { analise: ok } },
+  ];
+
+  it("conta lidas, na fila e as que dá para pedir (a que falhou pode de novo)", () => {
+    expect(contarLeiturasIa(candidatos)).toEqual({ lidas: 1, naFila: 1, aPedir: 3 });
+  });
+
+  it("o botão mostra quantas, o gasto e o teto, e pede a leitura", async () => {
+    const onLerComIa = vi.fn(async () => true);
+    render(
+      <AnaliseDaCampanha
+        candidates={candidatos}
+        busy={false}
+        onAnalisar={vi.fn()}
+        gastoIaCentavos={12.5}
+        onLerComIa={onLerComIa}
+      />,
+    );
+    expect(screen.getByText(/Gasto: US\$ 0,13 de US\$ 1,00/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Ler com IA (3)" }));
+    await waitFor(() => expect(onLerComIa).toHaveBeenCalledTimes(1));
+  });
+
+  it("no teto da campanha, o botão desliga e diz por quê", () => {
+    render(
+      <AnaliseDaCampanha
+        candidates={candidatos}
+        busy={false}
+        onAnalisar={vi.fn()}
+        gastoIaCentavos={98}
+        onLerComIa={vi.fn()}
+      />,
+    );
+    expect(
+      (screen.getByRole("button", { name: "Ler com IA (3)" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getByText("O teto de gasto com IA desta campanha foi atingido.")).toBeTruthy();
+  });
+});
+
+describe("busca no Maps das empresas do Mercado (Fase 3b)", () => {
+  const semSite = { ...ok, status: "sem_site" as const, site: null };
+  const busca = {
+    status: "achada" as const,
+    run_id: "r",
+    termo: "MASSAS SERRA TOLEDO PR",
+    teto_usd: 0.1,
+    pedida_em: "2026-10-18T00:00:00Z",
+    concluida_em: "2026-10-18T00:05:00Z",
+    titulo: "Massas Serra",
+    observacao: null,
+  };
+  const candidatos = [
+    { status: "new", data: { fonte: "mercado" as const, analise: semSite } },
+    { status: "new", data: { fonte: "mercado" as const, analise: semSite } },
+    { status: "new", data: { fonte: "mercado" as const, analise: semSite, maps_busca: busca } },
+    {
+      status: "new",
+      data: {
+        fonte: "mercado" as const,
+        analise: semSite,
+        maps_busca: { ...busca, status: "buscando" as const },
+      },
+    },
+    // ainda sem análise grátis: primeiro analisar
+    { status: "new", data: { fonte: "mercado" as const } },
+    // do Maps, não do Mercado
+    { status: "new", data: { analise: semSite } },
+  ];
+
+  it("conta achadas, procurando e as que dá para procurar", () => {
+    expect(contarBuscasNoMaps(candidatos)).toEqual({
+      doMercado: 5,
+      achadas: 1,
+      procurando: 1,
+      aProcurar: 2,
+    });
+  });
+
+  it("o botão aparece só com empresas do Mercado, e mostra o gasto e o teto", async () => {
+    const onProcurarNoMaps = vi.fn(async () => true);
+    render(
+      <AnaliseDaCampanha
+        candidates={candidatos}
+        busy={false}
+        onAnalisar={vi.fn()}
+        gastoMapsUsd={0.14}
+        onProcurarNoMaps={onProcurarNoMaps}
+      />,
+    );
+    expect(
+      screen.getByText(/Achadas no Maps: 1 · 1 procurando · Gasto: US\$ 0,14 de US\$ 1,00/),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Procurar no Maps (2)" }));
+    await waitFor(() => expect(onProcurarNoMaps).toHaveBeenCalledTimes(1));
+    cleanup();
+    render(
+      <AnaliseDaCampanha
+        candidates={[{ status: "new", data: { analise: semSite } }]}
+        busy={false}
+        onAnalisar={vi.fn()}
+        onProcurarNoMaps={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /Procurar no Maps/ })).toBeNull();
+  });
+
+  it("na empresa: procurando, achada, ou outra empresa no Maps", () => {
+    render(<BuscaNoMapsDaEmpresa busca={{ ...busca, status: "buscando" }} />);
+    expect(screen.getByText("Procurando no Maps")).toBeTruthy();
+    cleanup();
+    render(<BuscaNoMapsDaEmpresa busca={busca} />);
+    expect(screen.getByText(/Achada no Maps: Massas Serra/)).toBeTruthy();
+    cleanup();
+    render(
+      <BuscaNoMapsDaEmpresa
+        busca={{
+          ...busca,
+          status: "nao_confere",
+          titulo: "Padaria do Zé",
+          observacao: "No Maps aparece outra empresa.",
+        }}
+      />,
+    );
+    expect(screen.getByText(/No Maps aparece outra empresa. \(Padaria do Zé\)/)).toBeTruthy();
   });
 });

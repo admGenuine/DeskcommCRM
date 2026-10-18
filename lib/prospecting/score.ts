@@ -107,8 +107,17 @@ export function pontuar(p: ProspectParaScore, perfil: PerfilAprendido | null | u
   const M = MOTIVOS_DO_SCORE;
   const itens: ItemDoScore[] = [];
 
-  const porte = p.porte ? PESOS_DO_SCORE.porte[p.porte] : undefined;
-  if (porte) itens.push({ pontos: porte, motivo: M[`porte_${p.porte}` as "porte_ME"] });
+  // O porte vem da Receita: direto, para quem veio do Mercado; achado pela
+  // análise (telefone ou nome, na mesma cidade), para quem veio do Maps.
+  const daReceita = p.porte ? null : (p.analise?.receita ?? null);
+  const qualPorte = p.porte ?? daReceita?.porte;
+  const porte = qualPorte ? PESOS_DO_SCORE.porte[qualPorte] : undefined;
+  if (porte)
+    itens.push({
+      pontos: porte,
+      motivo: M[`porte_${qualPorte}` as "porte_ME"],
+      ...(daReceita ? { detalhe: daReceita.razao_social } : {}),
+    });
 
   const analise = p.analise && ANALISE_CONCLUIDA.has(p.analise.status) ? p.analise : null;
   const tem = (tipo: TipoDeSinal) => !!analise?.sinais.some((s) => s.tipo === tipo);

@@ -53,6 +53,12 @@ export const sinalSchema = z
     evidencia: z.string().max(240),
     /** A página onde a prova está; null quando o sinal é a ausência do site. */
     link: z.string().max(500).nullable(),
+    /**
+     * `ia` quando o sinal veio da leitura por IA (Fase 3b); ausente quando veio
+     * das réguas da leitura grátis. A prova da IA é um trecho LITERAL da página,
+     * conferido antes de gravar (`ia.ts`).
+     */
+    fonte: z.enum(["ia"]).optional(),
   })
   .strict();
 export type Sinal = z.infer<typeof sinalSchema>;
@@ -68,6 +74,58 @@ export type EstadoDaAnalise = (typeof ESTADOS_DA_ANALISE)[number];
 
 /** De onde veio o endereço do site. */
 export const ORIGENS_DO_SITE = ["maps", "email"] as const;
+
+/**
+ * A empresa do Maps achada na base da Receita que já está no banco
+ * (`prospecting_market_companies`), pelo telefone ou pelo nome, na mesma
+ * cidade (Fase 3b, grátis). É de onde a nota tira o porte de quem não veio do
+ * Mercado. Só vale achado ÚNICO: dois CNPJs possíveis é não achado.
+ */
+export const CRITERIOS_DA_RECEITA = ["telefone", "nome"] as const;
+export const receitaSchema = z
+  .object({
+    cnpj: z.string().regex(/^[0-9]{14}$/),
+    razao_social: z.string().max(200),
+    porte: z.string().max(20),
+    criterio: z.enum(CRITERIOS_DA_RECEITA),
+  })
+  .strict();
+export type AchadoNaReceita = z.infer<typeof receitaSchema>;
+
+/**
+ * A leitura do site por IA (Fase 3b, paga, só quando o dono pede). Fica dentro
+ * da análise: refazer a análise grátis zera a leitura, e o gasto da campanha
+ * fica guardado à parte (`prospecting_campaigns.gasto_ia_centavos`), para o
+ * teto não renascer.
+ */
+export const ESTADOS_DA_LEITURA_IA = [
+  "pendente",
+  "lendo",
+  "ok",
+  "sem_texto",
+  "teto",
+  "falhou",
+] as const;
+export type EstadoDaLeituraIa = (typeof ESTADOS_DA_LEITURA_IA)[number];
+
+export const leituraIaSchema = z
+  .object({
+    status: z.enum(ESTADOS_DA_LEITURA_IA),
+    pedida_em: z.string(),
+    iniciada_em: z.string().nullable(),
+    lida_em: z.string().nullable(),
+    /** O que a empresa faz e para quem vende, em até duas frases. */
+    resumo: z.string().max(400).nullable(),
+    produtos: z.array(z.string().max(80)).max(8),
+    /** Quantos sinais a IA trouxe que a leitura grátis não tinha achado. */
+    sinais_novos: z.number().int().min(0),
+    /** Em centavos de dólar; estimado pelo preço mais alto quando o modelo não tem preço. */
+    custo_centavos: z.number().min(0),
+    modelo: z.string().max(120).nullable(),
+    observacao: z.string().max(300).nullable(),
+  })
+  .strict();
+export type LeituraIa = z.infer<typeof leituraIaSchema>;
 
 export const analiseSchema = z
   .object({
@@ -94,6 +152,10 @@ export const analiseSchema = z
     observacao: z.string().max(300).nullable(),
     /** Versão das réguas que fizeram a análise; a de versão antiga pode ser refeita. */
     versao: z.number().int().min(1),
+    /** Achado na Receita (só para quem não veio do Mercado); null = procurado e não achado. */
+    receita: receitaSchema.nullable().optional(),
+    /** A leitura por IA, quando pedida. */
+    ia: leituraIaSchema.optional(),
   })
   .strict();
 export type Analise = z.infer<typeof analiseSchema>;
@@ -101,10 +163,11 @@ export type Analise = z.infer<typeof analiseSchema>;
 /**
  * A versão das réguas. Sobe quando uma correção muda o resultado (17/10/2026,
  * versão 2: perfil da agência, site do Maps que é rede social ou página de
- * pedidos, cadeado, página de aviso); a análise de versão anterior volta a
- * poder ser pedida, sem esperar os 180 dias.
+ * pedidos, cadeado, página de aviso; versão 3: a busca na Receita, que traz o
+ * porte das empresas do Maps); a análise de versão anterior volta a poder ser
+ * pedida, sem esperar os 180 dias.
  */
-export const VERSAO_DA_ANALISE = 2;
+export const VERSAO_DA_ANALISE = 3;
 
 /** Uma análise vale por 180 dias (plano: cache de dados da empresa). */
 export const VALIDADE_DA_ANALISE_DIAS = 180;

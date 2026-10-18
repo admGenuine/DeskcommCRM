@@ -19,6 +19,7 @@ import { logger } from "@/lib/logger";
 
 import type { Prospect } from "../schema";
 import { analisarEmpresa, type DependenciasDaAnalise } from "./analisar";
+import { buscarNaReceita } from "./receita";
 import {
   analisePendente,
   analiseSchema,
@@ -105,6 +106,23 @@ export async function gravarAnalise(
 }
 
 /**
+ * A busca na Receita não pode derrubar a análise do site: se a consulta falha,
+ * a análise grava sem ela (e a nota fica sem o porte, como antes).
+ */
+async function procurarNaReceita(pool: pg.Pool, c: Reivindicado) {
+  try {
+    return await buscarNaReceita(pool, c.data);
+  } catch (error) {
+    logger.warn("[prospecting] busca na Receita falhou; a análise segue sem ela", {
+      organization_id: c.organization_id,
+      candidate_id: c.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
+}
+
+/**
  * A rodada: lotes de `LOTE` empresas até `ate` (epoch ms). Devolve quantas foram
  * analisadas. Erro de uma empresa não derruba as outras: ela volta à fila pelo
  * prazo de travada, e o motivo fica no log.
@@ -128,6 +146,8 @@ export async function analisarSitesPendentes(
             c.data.analise?.pedida_em ?? new Date().toISOString(),
             deps,
           );
+          const receita = await procurarNaReceita(pool, c);
+          if (receita !== undefined) analise.receita = receita;
           if (await gravarAnalise(pool, c.organization_id, c.id, analise)) analisadas++;
         } catch (error) {
           logger.warn("[prospecting] análise de site falhou; volta à fila", {

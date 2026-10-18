@@ -43,6 +43,7 @@ import {
   providerRequest,
   readResults as readResultsDaApify,
   readSearch as readSearchDaApify,
+  startLookup as startLookupDaApify,
   startSearch as startSearchDaApify,
 } from "./provider";
 import { provedorDeTeste } from "./provedor-teste";
@@ -71,6 +72,11 @@ export interface ProvedorDeBusca {
   startSearch(chave: string, input: SearchInput, alcance?: number): Promise<DadosDaExecucao>;
   readSearch(chave: string, id: string): Promise<DadosDaExecucao>;
   readResults(chave: string, dataset: string, limit: number): Promise<Record<string, unknown>[]>;
+  /**
+   * Fork da Genuine (Fase 3b): procurar empresas conhecidas, um lugar por
+   * termo. Opcional: provedor que não sabe fazer isto não oferece a busca.
+   */
+  startLookup?(chave: string, termos: string[], tetoUsd: number): Promise<DadosDaExecucao>;
 }
 
 /**
@@ -97,6 +103,7 @@ const REGISTRO: Record<string, RegistroDoProvedor> = {
       startSearch: startSearchDaApify,
       readSearch: readSearchDaApify,
       readResults: readResultsDaApify,
+      startLookup: startLookupDaApify,
     },
     validarCredencial: async (chave) => {
       await providerRequest(chave, "users/me");

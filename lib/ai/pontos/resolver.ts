@@ -269,6 +269,10 @@ export const PONTOS_QUE_HERDAM_DO_AGENTE: ReadonlySet<string> = new Set([
 export const PONTOS_DE_TIER_ECONOMICO: ReadonlySet<string> = new Set([
   "stage_classifier",
   "jailbreak_detect",
+  // Fork da Genuine: leitura de site da prospecção. Saída ruim degrada sem
+  // repetir nada: o sinal sem trecho literal da página é descartado, e o que
+  // sobra é a leitura grátis. Roda em lote, com teto de gasto por campanha.
+  "prospecting_site_read",
 ]);
 
 /**
