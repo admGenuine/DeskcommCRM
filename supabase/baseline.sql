@@ -57722,3 +57722,27 @@ comment on column public.prospecting_campaigns.gasto_maps_usd is
   'Gasto (e reserva em andamento) da busca no Maps das empresas do Mercado sem site, em dólares (fork da Genuine, Fase 3b). O teto por campanha é lido contra ele.';
 
 notify pgrst, 'reload schema';
+
+-- ---- quadro de sócios das empresas do Mercado (migration 9005, fork da Genuine) ----
+create table if not exists public.prospecting_market_socios (
+  id bigint generated always as identity primary key,
+  cnpj_basico text not null check (cnpj_basico ~ '^[0-9]{8}$'),
+  nome text not null check (length(nome) between 1 and 200),
+  qualificacao_codigo text not null check (qualificacao_codigo ~ '^[0-9]{2,3}$'),
+  qualificacao text,
+  data_entrada date,
+  referencia text not null check (referencia ~ '^[0-9]{4}-[0-9]{2}$'),
+  atualizado_em timestamptz not null default now()
+);
+
+create index if not exists prospecting_market_socios_cnpj_basico
+  on public.prospecting_market_socios (cnpj_basico);
+
+comment on table public.prospecting_market_socios is
+  'Quadro de sócios pessoa física das empresas do Mercado (base pública da Receita), só nome, qualificação e entrada (fork da Genuine, Fase 5). Escrita só pela rotina de importação, que troca a tabela inteira a cada mês; leitura só pelo servidor, e só para a organização que ligou o uso com a referência do legítimo interesse.';
+
+alter table public.prospecting_market_socios enable row level security;
+revoke all on public.prospecting_market_socios from public, anon, authenticated;
+grant all on public.prospecting_market_socios to service_role;
+
+notify pgrst, 'reload schema';

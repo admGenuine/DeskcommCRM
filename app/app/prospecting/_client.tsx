@@ -22,6 +22,8 @@ import { ProspectingAgentBuilder, type CreatedProspectingAgent } from "./_create
 import { AprendizadoCard, AvaliacaoDaEmpresa, ReferenciaDaCampanha } from "./_avaliacao";
 import { AnaliseDaCampanha, BuscaNoMapsDaEmpresa, SinaisDaEmpresa } from "./_sinais";
 import { FicarComAsMelhores, NotaDaEmpresa } from "./_score";
+import { DecisorDaEmpresa, UsoDeSociosCard } from "./_decisor";
+import type { Decisor } from "@/lib/prospecting/mercado/socios";
 import { pontuar } from "@/lib/prospecting/score";
 import { FILTROS, passaNoFiltro, type Filtro } from "./_filtro";
 import { MercadoForm } from "./_mercado";
@@ -58,6 +60,8 @@ type Candidate = {
   message_status: string | null;
   error: string | null;
   conversation_id: string | null;
+  /** Fork, Fase 5: o decisor pelo quadro de sócios, só com o uso ligado. */
+  decisores?: Decisor[];
 };
 type State = {
   configured: boolean;
@@ -72,6 +76,8 @@ type State = {
   }[];
   stages: { id: string; name: string; pipeline_id: string; pipeline_name: string }[];
   aprendizado?: PerfilAprendido;
+  /** Fork, Fase 5: o uso do quadro de sócios da organização. */
+  socios?: { ativo: boolean; base_legal_ref: string | null };
 };
 const labels: Record<string, string> = {
   draft: "Preparar campanha",
@@ -649,6 +655,18 @@ export function ProspectingClient() {
             </div>
           </section>
           <AprendizadoCard perfil={data?.aprendizado} />
+          <UsoDeSociosCard
+            estado={data?.socios}
+            busy={busy}
+            onSalvar={(pedido) =>
+              perform(
+                { action: "socios_config", ...pedido },
+                pedido.ativo
+                  ? t("Quadro de sócios ligado. O decisor aparece em cada empresa com CNPJ.")
+                  : t("Quadro de sócios desligado. Nenhum sócio é mostrado."),
+              )
+            }
+          />
         </aside>
         <div className="min-w-0 space-y-5">
           {!campaign && (
@@ -1480,6 +1498,7 @@ export function ProspectingClient() {
                       <p className="font-medium">{c.data.name}</p>
                       <p className="mt-1 text-xs text-muted-foreground">{c.data.category}</p>
                       <p className="mt-1 text-xs">{c.data.phone ?? t("Sem telefone")}</p>
+                      <DecisorDaEmpresa decisores={c.decisores} />
                     </td>
                     <td className="p-4 align-top">
                       <NotaDaEmpresa

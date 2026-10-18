@@ -1,5 +1,10 @@
 # Mercado da prospecção: a base pública de CNPJ da Receita, filtrada para o
-# recorte do dono, gravada em `prospecting_market_companies` (migration 9002).
+# recorte do dono, gravada em `prospecting_market_companies` (migration 9002),
+# e o quadro de sócios dessas empresas em `prospecting_market_socios`
+# (migration 9005, Fase 5: o decisor).
+#
+# O REPOSITÓRIO É PÚBLICO: nome de sócio nunca vai para artefato nem para log.
+# Só contagens aparecem no resumo do job.
 #
 # Fork da Genuine (admgenuine/DeskcommCRM). Plano: docs/genuine/PLANO-PROSPECCAO.md,
 # Fase 2. Fonte: a Receita; quando ela recusa o runner (fica fora do Brasil), o
@@ -99,7 +104,10 @@ jobs:
           fi
           # Sem tabela, sem acesso ou qualquer erro: não pula (a gravação explica o erro).
           atual="$(psql "$MERCADO_DB_URL" -Atc "select coalesce(max(referencia), '') from public.prospecting_market_companies" 2>/dev/null || true)"
-          if [ "$atual" = "$MES" ]; then
+          # Sócios (migration 9005): sem a tabela ainda (VPS não atualizou), não há
+          # o que gravar, e isso não justifica baixar a base de novo.
+          socios="$(psql "$MERCADO_DB_URL" -Atc "select coalesce(max(referencia), '') from public.prospecting_market_socios" 2>/dev/null || echo "sem_tabela")"
+          if [ "$atual" = "$MES" ] && { [ "$socios" = "$MES" ] || [ "$socios" = "sem_tabela" ]; }; then
             echo "::notice::A base $MES já está gravada no banco: nada a baixar nesta release."
             echo "pular=true" >> "$GITHUB_OUTPUT"
           else
@@ -116,10 +124,15 @@ jobs:
           usuario="$(jq -r .usuario "$RUNNER_TEMP/fonte.json")"
           # @uri: o nome vai codificado na URL e no arquivo local (o filtro só olha o começo).
           jq -r '.arquivos[] | @uri' "$RUNNER_TEMP/fonte.json" \
-            | grep -iE '^(Estabelecimentos|Empresas|Simples|Municipios|Cnaes)' > "$dir/arquivos.txt" || true
+            | grep -iE '^(Estabelecimentos|Empresas|Simples|Municipios|Cnaes|Socios|Qualificacoes)' > "$dir/arquivos.txt" || true
           for prefixo in Estabelecimentos Empresas Simples Municipios Cnaes; do
             grep -qi "^$prefixo" "$dir/arquivos.txt" \
               || { echo "::error::Falta $prefixo*.zip em $url"; exit 1; }
+          done
+          # Os sócios (Fase 5) não reprovam: sem eles, o mercado segue sem decisor.
+          for prefixo in Socios Qualificacoes; do
+            grep -qi "^$prefixo" "$dir/arquivos.txt" \
+              || echo "::warning::Falta $prefixo*.zip em $url: os sócios não serão atualizados."
           done
           auth=()
           [ -n "$usuario" ] && auth=(-u "$usuario:")
@@ -139,7 +152,7 @@ jobs:
           python3 scripts/genuine/mercado/filtrar_receita.py \
             --dir "$RUNNER_TEMP/receita" --referencia "$MES" \
             --ufs "$UFS" --cnae-prefixos "$CNAE_PREFIXOS" --cnae-excluidos "$CNAE_EXCLUIDOS" \
-            --saida saida/mercado.csv --resumo saida/resumo.json
+            --saida saida/mercado.csv --saida-socios "$RUNNER_TEMP/socios.csv" --resumo saida/resumo.json
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
           r = json.load(open("saida/resumo.json", encoding="utf-8"))
@@ -155,8 +168,10 @@ jobs:
               ("matrizes", "Matrizes"),
               ("com_telefone", "Com telefone"),
               ("com_email", "Com e-mail"),
+              ("socios", "Sócios pessoa física (nomes não aparecem aqui)"),
+              ("empresas_com_socio", "Empresas com sócio"),
           ]:
-              numero = f"{r[k]:,}".replace(",", ".")
+              numero = f"{r.get(k, 0):,}".replace(",", ".")
               print(f"| {rotulo} | {numero} |")
           print("\n**Por UF:** " + ", ".join(f"{k} {v}" for k, v in r["por_uf"].items()))
           print("\n**Por porte:** " + ", ".join(f"{k} {v}" for k, v in r["por_porte"].items()))
@@ -203,3 +218,10 @@ jobs:
           psql "$MERCADO_DB_URL" -v completa=true \
             -f scripts/genuine/mercado/carregar.sql < saida/mercado.csv \
             | tee -a "$GITHUB_STEP_SUMMARY"
+          # Os sócios ficam fora de `saida/` (que vira artefato público) e só as
+          # contagens vão para o resumo.
+          # Só o cabeçalho (faltaram os arquivos de sócios): não há o que trocar.
+          if [ -f "$RUNNER_TEMP/socios.csv" ] && [ "$(wc -l < "$RUNNER_TEMP/socios.csv")" -gt 1 ]; then
+            psql "$MERCADO_DB_URL" -f scripts/genuine/mercado/carregar_socios.sql < "$RUNNER_TEMP/socios.csv" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
