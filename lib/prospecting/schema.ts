@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ufDoLugar } from "./aceite/regiao";
 import { avaliarTelefoneBR } from "./aceite/telefone";
 import { NOTAS, type Avaliacao } from "./aprendizado";
+import type { BuscaNoMaps } from "./mercado/busca-no-maps";
 import { filtrosDoMercadoSchema } from "./mercado/filtros";
 import type { Analise } from "./sinais/tipos";
 /**
@@ -117,6 +118,8 @@ export const prospectingInputSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("analyze_sites"), id: z.string().uuid() }).strict(),
   // Fase 3b: leitura dos sites por IA, paga, com teto por campanha (`sinais/fila-ia.ts`).
   z.object({ action: z.literal("read_sites_ai"), id: z.string().uuid() }).strict(),
+  // Fase 3b: procurar no Maps as empresas do Mercado sem site, pelo saldo da Apify (`mercado/maps.ts`).
+  z.object({ action: z.literal("search_maps_market"), id: z.string().uuid() }).strict(),
 ]);
 export type CampaignConfig = z.infer<typeof campaignConfigSchema>;
 export type CampaignPace = Pick<CampaignConfig, "daily_limit" | "interval_minutes">;
@@ -159,6 +162,8 @@ export interface Prospect {
   avaliacao?: Avaliacao;
   /** Sinais lidos do site da empresa (`sinais/`, Fase 3 do fork). */
   analise?: Analise;
+  /** A busca no Maps da empresa do Mercado sem site (`mercado/maps.ts`, Fase 3b do fork). */
+  maps_busca?: BuscaNoMaps;
   /** De onde a empresa veio; ausente = busca do Maps. */
   fonte?: "mercado";
   /** Do mercado (base da Receita): CNPJ de 14 dígitos, razão social e porte declarado. */

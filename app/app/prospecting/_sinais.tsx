@@ -4,17 +4,30 @@
  * regras moram em `lib/prospecting/sinais/`; aqui só se mostra o que a análise
  * gravou, sempre com a prova (o trecho no `title` e o link da página).
  */
-import { Globe, Loader2, Sparkles } from "lucide-react";
+import { Globe, Loader2, MapPin, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useT } from "@/hooks/i18n/useT";
+import {
+  MINIMO_PARA_BUSCAR_USD,
+  TETO_DO_MAPS_POR_CAMPANHA_USD,
+  type BuscaNoMaps,
+} from "@/lib/prospecting/mercado/busca-no-maps";
 import {
   RESERVA_POR_LEITURA_CENTAVOS,
   TETO_DA_IA_POR_CAMPANHA_CENTAVOS,
 } from "@/lib/prospecting/sinais/teto-da-ia";
 import { ROTULO_DO_SINAL, VERSAO_DA_ANALISE, type Analise } from "@/lib/prospecting/sinais/tipos";
 
-type ComAnalise = { status: string; data: { analise?: Analise } };
+type ComAnalise = {
+  status: string;
+  data: {
+    analise?: Analise;
+    fonte?: "mercado";
+    website?: string | null;
+    maps_busca?: BuscaNoMaps;
+  };
+};
 
 const CONCLUIDAS = new Set(["ok", "sem_site", "fora_do_ar"]);
 
@@ -70,6 +83,34 @@ export function contarLeiturasIa(candidates: ComAnalise[]) {
   return { lidas, naFila, aPedir };
 }
 
+/**
+ * A busca no Maps das empresas do Mercado (Fase 3b): achadas, procurando e as
+ * que dá para procurar (do Mercado, sem site, com a análise grátis feita sem
+ * achar site, e ainda não procuradas ou com a busca que falhou). Espelha o
+ * `ELEGIVEIS` de `lib/prospecting/mercado/maps.ts`.
+ */
+export function contarBuscasNoMaps(candidates: ComAnalise[]) {
+  let doMercado = 0;
+  let achadas = 0;
+  let procurando = 0;
+  let aProcurar = 0;
+  for (const c of candidates) {
+    if (c.data.fonte !== "mercado") continue;
+    doMercado++;
+    const b = c.data.maps_busca?.status;
+    if (b === "achada") achadas++;
+    else if (b === "buscando") procurando++;
+    else if (
+      c.status !== "skipped" &&
+      !c.data.website &&
+      (c.data.analise?.status === "sem_site" || c.data.analise?.status === "fora_do_ar") &&
+      (!b || b === "falhou")
+    )
+      aProcurar++;
+  }
+  return { doMercado, achadas, procurando, aProcurar };
+}
+
 const dolares = (centavos: number) => `US$ ${(centavos / 100).toFixed(2).replace(".", ",")}`;
 
 export function AnaliseDaCampanha({
@@ -78,16 +119,22 @@ export function AnaliseDaCampanha({
   onAnalisar,
   gastoIaCentavos = 0,
   onLerComIa,
+  gastoMapsUsd = 0,
+  onProcurarNoMaps,
 }: {
   candidates: ComAnalise[];
   busy: boolean;
   onAnalisar: () => Promise<boolean>;
   gastoIaCentavos?: number;
   onLerComIa?: () => Promise<boolean>;
+  gastoMapsUsd?: number;
+  onProcurarNoMaps?: () => Promise<boolean>;
 }) {
   const t = useT();
   const { analisadas, naFila, semPedido } = contarAnalises(candidates);
   const ia = contarLeiturasIa(candidates);
+  const maps = contarBuscasNoMaps(candidates);
+  const mapsNoTeto = TETO_DO_MAPS_POR_CAMPANHA_USD - gastoMapsUsd < MINIMO_PARA_BUSCAR_USD;
   const noTeto = gastoIaCentavos + RESERVA_POR_LEITURA_CENTAVOS > TETO_DA_IA_POR_CAMPANHA_CENTAVOS;
   return (
     <div className="flex flex-col gap-2">
@@ -129,6 +176,31 @@ export function AnaliseDaCampanha({
             {ia.aPedir > 0 ? `${t("Ler com IA")} (${ia.aPedir})` : t("Ler com IA")}
           </Button>
           {noTeto && <span>{t("O teto de gasto com IA desta campanha foi atingido.")}</span>}
+        </div>
+      )}
+      {onProcurarNoMaps && maps.doMercado > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <MapPin className="h-4 w-4" aria-hidden />
+          <span>
+            {t("Achadas no Maps")}: {maps.achadas}
+            {maps.procurando > 0 && ` · ${maps.procurando} ${t("procurando")}`}
+            {` · ${t("Gasto")}: ${dolares(gastoMapsUsd * 100)} ${t("de")} ${dolares(TETO_DO_MAPS_POR_CAMPANHA_USD * 100)}`}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy || maps.aProcurar === 0 || mapsNoTeto}
+            onClick={() => void onProcurarNoMaps()}
+            title={t(
+              "Procura no Google Maps as empresas da Receita que ficaram sem site na análise grátis, para trazer site, nota e avaliações. Usa o saldo da Apify, com teto por campanha.",
+            )}
+          >
+            {maps.aProcurar > 0
+              ? `${t("Procurar no Maps")} (${maps.aProcurar})`
+              : t("Procurar no Maps")}
+          </Button>
+          {mapsNoTeto && <span>{t("O teto de busca no Maps desta campanha foi atingido.")}</span>}
         </div>
       )}
     </div>
@@ -232,5 +304,31 @@ function LeituraDaIa({ ia }: { ia: Analise["ia"] }) {
         <p className="text-muted-foreground">{t("A IA não achou nada além da leitura grátis.")}</p>
       )}
     </div>
+  );
+}
+
+/** O que a busca no Maps achou para esta empresa do Mercado (coluna Informações). */
+export function BuscaNoMapsDaEmpresa({ busca }: { busca: BuscaNoMaps | undefined }) {
+  const t = useT();
+  if (!busca) return null;
+  if (busca.status === "buscando")
+    return (
+      <span className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+        {t("Procurando no Maps")}
+      </span>
+    );
+  if (busca.status === "achada")
+    return (
+      <p className="mt-1 text-xs text-muted-foreground">
+        {t("Achada no Maps")}: {busca.titulo}
+        {busca.observacao && ` · ${busca.observacao}`}
+      </p>
+    );
+  return (
+    <p className="mt-1 text-xs text-muted-foreground">
+      {busca.observacao}
+      {busca.status === "nao_confere" && busca.titulo && ` (${busca.titulo})`}
+    </p>
   );
 }

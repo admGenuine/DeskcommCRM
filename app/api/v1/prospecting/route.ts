@@ -15,6 +15,7 @@ import { carregarPerfilAprendido } from "@/lib/prospecting/perfil-aprendido";
 import { criarCampanhaDoMercado } from "@/lib/prospecting/mercado/campanha";
 import { pedirAnaliseDaCampanha } from "@/lib/prospecting/sinais/fila";
 import { pedirLeituraIaDaCampanha } from "@/lib/prospecting/sinais/fila-ia";
+import { pedirBuscaNoMaps } from "@/lib/prospecting/mercado/maps";
 import {
   activateCampaign,
   adjustPace,
@@ -59,7 +60,7 @@ export async function GET(req: NextRequest) {
           org,
         ]),
         db.query(
-          "select id,name,search,config,status,search_status,run_id,cost_usd,result_count,skipped_count,error,next_send_at,created_at,referencia_em,referencia_motivo,gasto_ia_centavos from prospecting_campaigns where organization_id=$1 order by created_at desc limit 50",
+          "select id,name,search,config,status,search_status,run_id,cost_usd,result_count,skipped_count,error,next_send_at,created_at,referencia_em,referencia_motivo,gasto_ia_centavos,gasto_maps_usd from prospecting_campaigns where organization_id=$1 order by created_at desc limit 50",
           [org],
         ),
         db.query(
@@ -169,6 +170,14 @@ export async function POST(req: NextRequest) {
       const pedido = await pedirLeituraIaDaCampanha(pool, org, body.id);
       result = pedido;
       auditMetadata = { operation: body.action, pedidas: pedido.pedidas };
+    } else if (body.action === "search_maps_market") {
+      const pedido = await pedirBuscaNoMaps(pool, admin, org, body.id);
+      result = pedido;
+      auditMetadata = {
+        operation: body.action,
+        pedidas: pedido.pedidas,
+        teto_usd: pedido.teto_usd,
+      };
     } else if (body.action === "pause") {
       // Pause does not wait for the worker lock; the delivery guard sees it before sending.
       const changed = await pool.query(

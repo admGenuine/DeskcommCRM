@@ -34,7 +34,7 @@ Cada arquivo do núcleo que o fork altera fica listado aqui, com o motivo, porqu
 | `tests/invariants/vocabulario-banco-x-typescript.test.ts` | Par `prospecting_market_companies.porte` x `PORTES_DO_MERCADO` | Coluna nova com CHECK de conjunto ganha um par |
 | `lib/ai/pontos/registro.ts` | Ponto de IA `prospecting_site_read` (leitura de site da prospecção, Fase 3b) | Toda chamada de modelo precisa estar no registro, senão a tela de provedores não a mostra e o teste de completude reprova |
 | `lib/ai/pontos/resolver.ts` | `prospecting_site_read` em `PONTOS_DE_TIER_ECONOMICO` | Sem escolha do dono, a leitura usa o modelo mais barato do provedor da organização, e não o do agente |
-| `lib/database.types.ts` | `prospecting_campaigns.gasto_ia_centavos` | Coluna da migration 9003 |
+| `lib/database.types.ts` | `prospecting_campaigns.gasto_ia_centavos` e `gasto_maps_usd` | Colunas das migrations 9003 e 9004 |
 | `tests/shell/colisao-de-migration.test.sh` | `unset GITHUB_REF` no começo | O teste herdava o número do PR do CI, e os PRs do fork (números pequenos) colidiam com os PRs inventados do teste: o PR #7 reprovava 9 casos. Defeito do original, candidato a contribuição |
 
 Ao trazer uma release nova do original, essas linhas podem dar conflito. A resolução é sempre manter o lado do fork (`admgenuine` e `producao`).
@@ -55,8 +55,9 @@ A prospecção é o módulo que o fork mais mexe, e o original também evolui ne
 | `lib/prospecting/worker.ts`, fim de `tickProspecting` | A rodada da análise de sites do fork (`sinais/fila.ts`) roda depois do laço das organizações, fora do lock, até 200s desde o começo da rodada |
 | `app/app/prospecting/_client.tsx`, seleção | "Ficar só com as melhores" (score do fork, `lib/prospecting/score.ts`) não tem ação própria: usa `select` na preparação e `select_in_queue` na fila pausada, do original, e só sobre as linhas que essas ações alteram |
 | `app/app/prospecting/_client.tsx`, parte 3 | O cartão "3. Acompanhar resultados" saiu da coluna da direita e fica abaixo da grade, na largura toda (a tabela tem 8 colunas). Num merge do original que mexa nesse cartão, o conflito aparece aqui |
-| `lib/prospecting/worker.ts`, fim de `tickProspecting` (Fase 3b) | Depois da análise grátis, a rodada da leitura por IA (`sinais/fila-ia.ts`), até o mesmo limite de 200s. O retorno da rodada ganhou `lidasComIa` |
-| `app/api/v1/prospecting/route.ts`, ação `read_sites_ai` | Fechada ao token, como as outras ações do fork; o GET devolve `gasto_ia_centavos` da campanha |
+| `lib/prospecting/worker.ts`, fim de `tickProspecting` (Fase 3b) | Depois da análise grátis, a rodada da leitura por IA (`sinais/fila-ia.ts`), até o mesmo limite de 200s. O retorno da rodada ganhou `lidasComIa`. Depois, a sincronização das buscas no Maps do Mercado (`mercado/maps.ts`), que devolve `achadasNoMaps` |
+| `app/api/v1/prospecting/route.ts`, ações `read_sites_ai` e `search_maps_market` | Fechadas ao token, como as outras ações do fork; o GET devolve `gasto_ia_centavos` e `gasto_maps_usd` da campanha |
+| `lib/prospecting/provedor.ts` e `provider.ts` | Método opcional `startLookup` no `ProvedorDeBusca` (só a Apify implementa): procurar empresas conhecidas, um lugar por termo, numa execução só | Provedor sem o método não oferece a busca do Mercado no Maps; os três métodos do original não mudaram |
 
 ### Migrations do fork
 
@@ -69,6 +70,7 @@ As migrations do fork começam em **9001** (`<timestamp>_9001_<slug>.sql`), long
 | `9001_prospeccao_campanha_de_referencia` | `prospecting_campaigns.referencia_em` e `referencia_motivo`: a campanha marcada como referência do perfil ideal |
 | `9002_prospeccao_mercado` | `prospecting_market_companies`: a base pública da Receita no recorte da prospecção, escrita pela rotina `genuine-mercado.yml` |
 | `9003_prospeccao_gasto_com_ia` | `prospecting_campaigns.gasto_ia_centavos`: quanto a leitura por IA já gastou na campanha, para o teto por campanha. A partir desta, a descrição fica no cabeçalho do `.sql` (`-- manifest:`), não no `MANIFEST.md` |
+| `9004_prospeccao_gasto_com_maps` | `prospecting_campaigns.gasto_maps_usd`: gasto e reserva da busca no Maps das empresas do Mercado sem site, para o teto por campanha |
 
 Ao trazer uma release nova do original, o `baseline.sql` e o `MANIFEST.md` podem dar conflito no fim do arquivo: manter os dois lados, com os blocos do fork por último.
 

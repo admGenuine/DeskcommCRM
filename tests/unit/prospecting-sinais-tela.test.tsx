@@ -9,8 +9,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   AnaliseDaCampanha,
+  BuscaNoMapsDaEmpresa,
   SinaisDaEmpresa,
   contarAnalises,
+  contarBuscasNoMaps,
   contarLeiturasIa,
 } from "@/app/app/prospecting/_sinais";
 import { leituraIaPendente } from "@/lib/prospecting/sinais/ia";
@@ -211,5 +213,93 @@ describe("leitura por IA (Fase 3b)", () => {
       (screen.getByRole("button", { name: "Ler com IA (3)" }) as HTMLButtonElement).disabled,
     ).toBe(true);
     expect(screen.getByText("O teto de gasto com IA desta campanha foi atingido.")).toBeTruthy();
+  });
+});
+
+describe("busca no Maps das empresas do Mercado (Fase 3b)", () => {
+  const semSite = { ...ok, status: "sem_site" as const, site: null };
+  const busca = {
+    status: "achada" as const,
+    run_id: "r",
+    termo: "MASSAS SERRA TOLEDO PR",
+    teto_usd: 0.1,
+    pedida_em: "2026-10-18T00:00:00Z",
+    concluida_em: "2026-10-18T00:05:00Z",
+    titulo: "Massas Serra",
+    observacao: null,
+  };
+  const candidatos = [
+    { status: "new", data: { fonte: "mercado" as const, analise: semSite } },
+    { status: "new", data: { fonte: "mercado" as const, analise: semSite } },
+    { status: "new", data: { fonte: "mercado" as const, analise: semSite, maps_busca: busca } },
+    {
+      status: "new",
+      data: {
+        fonte: "mercado" as const,
+        analise: semSite,
+        maps_busca: { ...busca, status: "buscando" as const },
+      },
+    },
+    // ainda sem análise grátis: primeiro analisar
+    { status: "new", data: { fonte: "mercado" as const } },
+    // do Maps, não do Mercado
+    { status: "new", data: { analise: semSite } },
+  ];
+
+  it("conta achadas, procurando e as que dá para procurar", () => {
+    expect(contarBuscasNoMaps(candidatos)).toEqual({
+      doMercado: 5,
+      achadas: 1,
+      procurando: 1,
+      aProcurar: 2,
+    });
+  });
+
+  it("o botão aparece só com empresas do Mercado, e mostra o gasto e o teto", async () => {
+    const onProcurarNoMaps = vi.fn(async () => true);
+    render(
+      <AnaliseDaCampanha
+        candidates={candidatos}
+        busy={false}
+        onAnalisar={vi.fn()}
+        gastoMapsUsd={0.14}
+        onProcurarNoMaps={onProcurarNoMaps}
+      />,
+    );
+    expect(
+      screen.getByText(/Achadas no Maps: 1 · 1 procurando · Gasto: US\$ 0,14 de US\$ 1,00/),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Procurar no Maps (2)" }));
+    await waitFor(() => expect(onProcurarNoMaps).toHaveBeenCalledTimes(1));
+    cleanup();
+    render(
+      <AnaliseDaCampanha
+        candidates={[{ status: "new", data: { analise: semSite } }]}
+        busy={false}
+        onAnalisar={vi.fn()}
+        onProcurarNoMaps={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /Procurar no Maps/ })).toBeNull();
+  });
+
+  it("na empresa: procurando, achada, ou outra empresa no Maps", () => {
+    render(<BuscaNoMapsDaEmpresa busca={{ ...busca, status: "buscando" }} />);
+    expect(screen.getByText("Procurando no Maps")).toBeTruthy();
+    cleanup();
+    render(<BuscaNoMapsDaEmpresa busca={busca} />);
+    expect(screen.getByText(/Achada no Maps: Massas Serra/)).toBeTruthy();
+    cleanup();
+    render(
+      <BuscaNoMapsDaEmpresa
+        busca={{
+          ...busca,
+          status: "nao_confere",
+          titulo: "Padaria do Zé",
+          observacao: "No Maps aparece outra empresa.",
+        }}
+      />,
+    );
+    expect(screen.getByText(/No Maps aparece outra empresa. \(Padaria do Zé\)/)).toBeTruthy();
   });
 });

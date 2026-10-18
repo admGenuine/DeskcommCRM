@@ -221,7 +221,11 @@ Cascata de fontes, cache, livro-razão de custo e sinais com prova.
 - **Leitura por IA (paga, feita em 18/10/2026).** Código em `lib/prospecting/sinais/ia.ts` e `fila-ia.ts`. O botão "Ler com IA" põe na fila as empresas com site lido pela análise atual. O worker lê de novo as mesmas páginas e pergunta ao modelo um resumo, os produtos e os sinais que dependem do texto (distribuidores, vagas comerciais, SIF, SIE ou SIM, varejo). Todo sinal da IA precisa de um trecho literal da página, conferido antes de gravar; o que não está escrito é descartado. O sinal da IA aparece com " · IA" na tela.
   - **Modelo:** o ponto de IA `prospecting_site_read`, configurável em IA › Provedores. Sem escolha, é o modelo mais barato do provedor da organização.
   - **Teto:** `TETO_DA_IA_POR_CAMPANHA_CENTAVOS` (100 = US$ 1,00), contra `prospecting_campaigns.gasto_ia_centavos` (migration 9003). Antes de cada leitura o worker reserva 3 centavos, só se couber no teto, e depois troca pelo custo real. Quem não cabe fica como "teto atingido". O custo de cada leitura também vai para a tela de uso de IA (`llm_calls`). O teto mensal de IA da organização continua valendo por cima.
-- **Maps para as empresas do Mercado sem site:** a fazer, numa entrega própria.
+- **Maps para as empresas do Mercado sem site (paga, feita em 18/10/2026).** Código em `lib/prospecting/mercado/maps.ts`. O botão "Procurar no Maps" aparece quando a campanha tem empresas do Mercado. Entram as que a análise grátis deixou sem site (`sem_site` ou `fora_do_ar`), ainda não procuradas.
+  - **A busca:** uma execução da Apify para o lote, um lugar por termo (nome sem a forma jurídica, cidade e UF).
+  - **O resultado só vale se for a empresa:** uma palavra própria do nome no lugar do Maps, e a mesma cidade. Se o Maps devolve outra empresa, ela fica registrada como "no Maps aparece outra empresa", sem trocar nada.
+  - **O que entra:** o site, o link, a nota e as avaliações. O site achado volta para a análise grátis. O telefone da Receita fica, porque já passou pela régua de entrada.
+  - **Teto:** `TETO_DO_MAPS_POR_CAMPANHA_USD` (US$ 1,00), contra `prospecting_campaigns.gasto_maps_usd` (migration 9004). Ao começar, o teto da execução (`maxTotalChargeUsd`) é reservado; quando ela termina, a reserva vira o custo que a Apify informou. O lote é dimensionado por US$ 0,007 por empresa, até 120 por clique.
 
 ### Fase 4: score e aprovação (etapas 5 e 6)
 

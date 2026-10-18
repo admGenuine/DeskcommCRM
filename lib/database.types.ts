@@ -8948,6 +8948,7 @@ export type Database = {
           dataset_id: string | null
           error: string | null
           gasto_ia_centavos: number
+          gasto_maps_usd: number
           id: string
           name: string
           next_send_at: string
@@ -8972,6 +8973,7 @@ export type Database = {
           dataset_id?: string | null
           error?: string | null
           gasto_ia_centavos?: number
+          gasto_maps_usd?: number
           id?: string
           name: string
           next_send_at?: string
@@ -8996,6 +8998,7 @@ export type Database = {
           dataset_id?: string | null
           error?: string | null
           gasto_ia_centavos?: number
+          gasto_maps_usd?: number
           id?: string
           name?: string
           next_send_at?: string

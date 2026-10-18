@@ -57707,3 +57707,18 @@ comment on column public.prospecting_campaigns.gasto_ia_centavos is
   'Gasto acumulado da leitura dos sites por IA nesta campanha, em centavos de dólar (fork da Genuine, Fase 3b). Só cresce; o teto por campanha é lido contra ele.';
 
 notify pgrst, 'reload schema';
+
+-- ---- gasto da busca no Maps das empresas do Mercado por campanha (migration 9004, fork da Genuine) ----
+alter table public.prospecting_campaigns
+  add column if not exists gasto_maps_usd numeric(10,4) not null default 0;
+
+alter table public.prospecting_campaigns
+  drop constraint if exists prospecting_campaigns_gasto_maps_usd_check;
+alter table public.prospecting_campaigns
+  add constraint prospecting_campaigns_gasto_maps_usd_check
+  check (gasto_maps_usd >= 0);
+
+comment on column public.prospecting_campaigns.gasto_maps_usd is
+  'Gasto (e reserva em andamento) da busca no Maps das empresas do Mercado sem site, em dólares (fork da Genuine, Fase 3b). O teto por campanha é lido contra ele.';
+
+notify pgrst, 'reload schema';

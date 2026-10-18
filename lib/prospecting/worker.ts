@@ -22,6 +22,7 @@ import { conferirWhatsappDoCandidato } from "./aceite/whatsapp";
 import { analisarSitesPendentes } from "./sinais/fila";
 import { lerSitesComIaPendentes } from "./sinais/fila-ia";
 import { chamarModeloPeloSeam } from "./sinais/ia-modelo";
+import { sincronizarBuscasNoMaps } from "./mercado/maps";
 import { assertProspectingDelivery } from "./guard";
 import { campaignConfigSchema } from "./schema";
 import { ProspectingError } from "./provider";
@@ -540,5 +541,14 @@ export async function tickProspecting(pool: pg.Pool, admin: SupabaseClient) {
       error: error instanceof Error ? error.message : String(error),
     });
   }
-  return { processed, analisadas, lidasComIa };
+  // Fase 3b: as buscas no Maps das empresas do Mercado sem site (`mercado/maps.ts`).
+  let achadasNoMaps = 0;
+  try {
+    achadasNoMaps = await sincronizarBuscasNoMaps(pool, admin, deadline + 20_000);
+  } catch (error) {
+    logger.error("[prospecting] rodada da busca no Maps do Mercado falhou", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return { processed, analisadas, lidasComIa, achadasNoMaps };
 }

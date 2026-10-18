@@ -20,7 +20,7 @@ import {
 import { alcanceDaBusca, mesmaBusca } from "@/lib/prospecting/busca-repetida";
 import { ProspectingAgentBuilder, type CreatedProspectingAgent } from "./_create-agent";
 import { AprendizadoCard, AvaliacaoDaEmpresa, ReferenciaDaCampanha } from "./_avaliacao";
-import { AnaliseDaCampanha, SinaisDaEmpresa } from "./_sinais";
+import { AnaliseDaCampanha, BuscaNoMapsDaEmpresa, SinaisDaEmpresa } from "./_sinais";
 import { FicarComAsMelhores, NotaDaEmpresa } from "./_score";
 import { pontuar } from "@/lib/prospecting/score";
 import { FILTROS, passaNoFiltro, type Filtro } from "./_filtro";
@@ -44,6 +44,8 @@ type Campaign = {
   referencia_motivo: string | null;
   /** Fork, Fase 3b: o gasto da leitura por IA, em centavos de dólar (numeric do Postgres). */
   gasto_ia_centavos?: string | number | null;
+  /** Fork, Fase 3b: gasto (e reserva) da busca no Maps do Mercado, em dólares. */
+  gasto_maps_usd?: string | number | null;
 };
 type Candidate = {
   id: string;
@@ -1362,6 +1364,15 @@ export function ProspectingClient() {
                       ),
                     )
                   }
+                  gastoMapsUsd={Number(campaign.gasto_maps_usd ?? 0)}
+                  onProcurarNoMaps={() =>
+                    perform(
+                      { action: "search_maps_market", id: campaign.id },
+                      t(
+                        "Busca no Maps começada. O que for achado aparece em alguns minutos, e o site achado entra na análise.",
+                      ),
+                    )
+                  }
                 />
               </div>
             )}
@@ -1495,6 +1506,7 @@ export function ProspectingClient() {
                           {email}
                         </p>
                       ))}
+                      <BuscaNoMapsDaEmpresa busca={c.data.maps_busca} />
                     </td>
                     <td className="max-w-64 p-4 align-top">
                       <Badge variant="outline">{t(labels[c.progress] ?? c.progress)}</Badge>
