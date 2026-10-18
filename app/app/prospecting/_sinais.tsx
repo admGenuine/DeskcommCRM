@@ -11,7 +11,7 @@ import { useT } from "@/hooks/i18n/useT";
 import {
   RESERVA_POR_LEITURA_CENTAVOS,
   TETO_DA_IA_POR_CAMPANHA_CENTAVOS,
-} from "@/lib/prospecting/sinais/ia";
+} from "@/lib/prospecting/sinais/teto-da-ia";
 import { ROTULO_DO_SINAL, VERSAO_DA_ANALISE, type Analise } from "@/lib/prospecting/sinais/tipos";
 
 type ComAnalise = { status: string; data: { analise?: Analise } };

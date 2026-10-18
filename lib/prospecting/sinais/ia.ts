@@ -32,15 +32,7 @@ import { textoDoHtml } from "./extrair";
 import { lerPagina, type Leitura } from "./leitor";
 import type { Analise, LeituraIa, Sinal, TipoDeSinal } from "./tipos";
 
-/** Decisão do dono em 17/10/2026: US$ 1,00 por campanha. */
-export const TETO_DA_IA_POR_CAMPANHA_CENTAVOS = 100;
-
-/**
- * Quanto se reserva do teto antes de cada leitura. Cobre com folga o modelo
- * econômico (menos de 1 centavo por empresa) e um modelo médio (perto de 2);
- * depois da leitura, a reserva é trocada pelo custo real.
- */
-export const RESERVA_POR_LEITURA_CENTAVOS = 3;
+export { RESERVA_POR_LEITURA_CENTAVOS, TETO_DA_IA_POR_CAMPANHA_CENTAVOS } from "./teto-da-ia";
 
 /** O texto que vai ao modelo: até 5.000 caracteres por página, 14.000 no total. */
 const MAX_POR_PAGINA = 5_000;
