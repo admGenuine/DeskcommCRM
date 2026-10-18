@@ -144,7 +144,7 @@ O público-alvo é quem **fabrica** alimentos. Isso muda o ponto de partida, o f
 
 - **Recorte de mercado inicial**: quais grupos da divisão 10 entram primeiro, se bebidas (divisão 11) entram, e quais UFs.
 - **Porte mínimo**: a partir de qual porte ou capital social uma indústria vale a abordagem.
-- **Quadro de sócios**: o Deskcomm apaga esse dado de propósito (`semSocios`, em `lib/crm-b2b/enrich.ts`) por LGPD. Usá-lo para achar o decisor exige registrar base legal de legítimo interesse B2B. Não mude essa regra sem minha aprovação.
+- **Quadro de sócios**: o Deskcomm apaga esse dado de propósito (`semSocios`, em `lib/crm-b2b/enrich.ts`) por LGPD. Usá-lo para achar o decisor exige registrar base legal de legítimo interesse B2B. Não mude essa regra sem minha aprovação. **Decidido em 18/10/2026:** a prospecção usa o quadro de sócios da Receita (Fase 5), com chave por organização e a referência do legítimo interesse; a regra do `semSocios` no enriquecimento do CRM continua como está.
 - **Pesos do score e nota de corte.** Pesos decididos em 17/10/2026 (Fase 4); a nota de corte fica a cada campanha, na tela.
 - **Fontes pagas** e o teto de gasto por busca.
 
@@ -254,7 +254,14 @@ Com tudo a favor, a nota hoje chega a 85.
 
 ### Fase 5: decisor (etapa 7)
 
-Só depois da minha decisão sobre o quadro de sócios.
+**Feita em 18/10/2026.** Decisão do dono: o decisor sai do quadro de sócios da base pública da Receita.
+
+- **De onde vem:** a rotina mensal (`genuine-mercado.yml`) passou a baixar `Socios*.zip` e `Qualificacoes.zip`. `filtrar_receita.py --saida-socios` guarda só os sócios pessoa física das empresas do recorte, e só nome, qualificação e data de entrada. CPF, faixa etária e representante legal nem são lidos. `carregar_socios.sql` troca a tabela `prospecting_market_socios` (migration 9005) inteira a cada mês, então quem saiu do quadro sai do banco.
+- **Repositório público:** o CSV de sócios nunca vira artefato do job, e nenhum nome vai para o log. O resumo do job só mostra contagens.
+- **Chave por organização:** o cartão "Decisor pelo quadro de sócios", na tela da prospecção, só liga com a referência da avaliação de legítimo interesse. Quem ligou, quando e com qual referência ficam em `organizations.settings.prospecting.socios` e no histórico de auditoria. Desligada, nenhum sócio é lido.
+- **Calculado na hora, nunca copiado:** o GET da prospecção lê os sócios pela raiz do CNPJ, do Mercado ou achado na Receita na Fase 3b, e devolve até 3 por empresa, na ordem de quem decide: sócio-administrador, administrador, titular, empresário, presidente, diretor, fundador, sócio. Nada é gravado no candidato: desligar some com tudo da tela, e a anonimização da LGPD do candidato corta o vínculo junto com o CNPJ.
+- **Ainda não feito:** usar o nome do decisor na mensagem de abordagem (Fase 6), e um registro de oposição do titular ("não quero ser procurado") que vale para a instalação toda.
+- **Primeira carga:** a release cria a tabela, mas a rotina da release roda antes de a VPS atualizar. Depois do `update.sh`, é preciso rodar a rotina de novo (disparo manual com `gravar`) para os sócios entrarem.
 
 ### Fase 6: ligação com a abordagem e o CRM (etapas 8 e 9)
 

@@ -216,5 +216,76 @@ class FiltroDaReceita(unittest.TestCase):
             self.assertEqual(json.load(f)["no_recorte"], 1)
 
 
+
+def socio(
+    basico: str,
+    nome: str,
+    qualificacao: str = "49",
+    *,
+    identificador: str = "2",
+    cpf: str = "***123456**",
+    entrada: str = "20150301",
+) -> list[str]:
+    return [basico, identificador, nome, cpf, qualificacao, entrada, "", "***000000**", "REPRESENTANTE X", "00", "5"]
+
+
+class SociosDaReceita(unittest.TestCase):
+    def montar(self, socios):
+        pasta = tempfile.mkdtemp()
+        gravar_zip(pasta, "Socios0.zip", socios)
+        gravar_zip(pasta, "Qualificacoes.zip", [["49", "Sócio-Administrador"], ["22", "Sócio"]])
+        return pasta
+
+    def test_so_pessoa_fisica_das_empresas_do_recorte_com_nome_cargo_e_entrada(self):
+        pasta = self.montar(
+            [
+                socio("19518682", "JOAO DA SILVA"),
+                socio("19518682", "MARIA  SOUZA", "22"),
+                socio("19518682", "HOLDING XYZ LTDA", "22", identificador="1"),  # pessoa jurídica
+                socio("99999999", "FORA DO RECORTE"),
+            ]
+        )
+        saida, resumo = fr.filtrar_socios(pasta, {"19518682"}, "2026-10")
+        self.assertEqual(
+            [(s["nome"], s["qualificacao_codigo"], s["qualificacao"], s["data_entrada"]) for s in saida],
+            [
+                ("JOAO DA SILVA", "49", "Sócio-Administrador", "2015-03-01"),
+                ("MARIA SOUZA", "22", "Sócio", "2015-03-01"),
+            ],
+        )
+        self.assertEqual(resumo["socios"], 2)
+        self.assertEqual(resumo["empresas_com_socio"], 1)
+
+    def test_cpf_representante_e_faixa_etaria_nao_saem_do_arquivo(self):
+        pasta = self.montar([socio("19518682", "JOAO DA SILVA")])
+        saida, _ = fr.filtrar_socios(pasta, {"19518682"}, "2026-10")
+        self.assertEqual(sorted(saida[0].keys()), sorted(fr.COLUNAS_SOCIOS))
+        self.assertNotIn("***123456**", json.dumps(saida))
+        self.assertNotIn("REPRESENTANTE", json.dumps(saida))
+
+    def test_sem_arquivo_de_socios_a_base_de_empresas_segue(self):
+        saida, resumo = fr.filtrar_socios(tempfile.mkdtemp(), {"19518682"}, "2026-10")
+        self.assertEqual(saida, [])
+        self.assertEqual(resumo["socios"], 0)
+
+    def test_main_grava_os_socios_so_das_empresas_que_ficaram_no_recorte(self):
+        pasta = tempfile.mkdtemp()
+        gravar_zip(pasta, "Estabelecimentos0.zip", [estabelecimento("19518682", dv="57"), estabelecimento("00000007")])
+        gravar_zip(pasta, "Empresas0.zip", [empresa("19518682", "PRESTO"), empresa("00000007", "MEI", porte="01")])
+        gravar_zip(pasta, "Simples.zip", [simples("00000007", "S", mei="S")])
+        gravar_zip(pasta, "Municipios.zip", [["8233", "PALHOCA"]])
+        gravar_zip(pasta, "Cnaes.zip", [["1099699", "Outros"]])
+        gravar_zip(pasta, "Socios0.zip", [socio("19518682", "JOAO DA SILVA"), socio("00000007", "DONO DO MEI")])
+        gravar_zip(pasta, "Qualificacoes.zip", [["49", "Sócio-Administrador"]])
+        saida, socios, resumo = (os.path.join(pasta, n) for n in ("m.csv", "s.csv", "r.json"))
+        fr.main(["--dir", pasta, "--referencia", "2026-10", "--saida", saida, "--saida-socios", socios, "--resumo", resumo])
+        with open(socios, encoding="utf-8") as f:
+            linhas = list(csv.DictReader(f))
+        self.assertEqual([l["nome"] for l in linhas], ["JOAO DA SILVA"])  # o MEI saiu do recorte
+        self.assertEqual(list(linhas[0].keys()), fr.COLUNAS_SOCIOS)
+        with open(resumo, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["socios"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

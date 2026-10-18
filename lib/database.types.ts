@@ -9108,6 +9108,39 @@ export type Database = {
         }
         Relationships: []
       }
+      prospecting_market_socios: {
+        Row: {
+          atualizado_em: string
+          cnpj_basico: string
+          data_entrada: string | null
+          id: number
+          nome: string
+          qualificacao: string | null
+          qualificacao_codigo: string
+          referencia: string
+        }
+        Insert: {
+          atualizado_em?: string
+          cnpj_basico: string
+          data_entrada?: string | null
+          id?: never
+          nome: string
+          qualificacao?: string | null
+          qualificacao_codigo: string
+          referencia: string
+        }
+        Update: {
+          atualizado_em?: string
+          cnpj_basico?: string
+          data_entrada?: string | null
+          id?: never
+          nome?: string
+          qualificacao?: string | null
+          qualificacao_codigo?: string
+          referencia?: string
+        }
+        Relationships: []
+      }
       push_subscriptions: {
         Row: {
           auth: string

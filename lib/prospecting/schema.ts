@@ -120,6 +120,14 @@ export const prospectingInputSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("read_sites_ai"), id: z.string().uuid() }).strict(),
   // Fase 3b: procurar no Maps as empresas do Mercado sem site, pelo saldo da Apify (`mercado/maps.ts`).
   z.object({ action: z.literal("search_maps_market"), id: z.string().uuid() }).strict(),
+  // Fase 5: ligar ou desligar o decisor pelo quadro de sócios (`mercado/socios.ts`).
+  z
+    .object({
+      action: z.literal("socios_config"),
+      ativo: z.boolean(),
+      base_legal_ref: z.string().trim().min(3).max(500).optional(),
+    })
+    .strict(),
 ]);
 export type CampaignConfig = z.infer<typeof campaignConfigSchema>;
 export type CampaignPace = Pick<CampaignConfig, "daily_limit" | "interval_minutes">;

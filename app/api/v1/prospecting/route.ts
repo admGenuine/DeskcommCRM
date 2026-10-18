@@ -15,7 +15,16 @@ import { carregarPerfilAprendido } from "@/lib/prospecting/perfil-aprendido";
 import { criarCampanhaDoMercado } from "@/lib/prospecting/mercado/campanha";
 import { pedirAnaliseDaCampanha } from "@/lib/prospecting/sinais/fila";
 import { pedirLeituraIaDaCampanha } from "@/lib/prospecting/sinais/fila-ia";
+import { logger } from "@/lib/logger";
 import { pedirBuscaNoMaps } from "@/lib/prospecting/mercado/maps";
+import {
+  decisoresPorRaiz,
+  gravarUsoDeSocios,
+  lerUsoDeSocios,
+  raizDoCnpj,
+  type Decisor,
+} from "@/lib/prospecting/mercado/socios";
+import type { Prospect } from "@/lib/prospecting/schema";
 import {
   activateCampaign,
   adjustPace,
@@ -81,11 +90,36 @@ export async function GET(req: NextRequest) {
         ),
         carregarPerfilAprendido(db, org),
       ]);
+    // Fase 5 (fork): o decisor pelo quadro de sócios, só com o uso ligado pela
+    // organização, calculado na hora e nunca gravado no candidato.
+    const socios = await lerUsoDeSocios(db, org);
+    let decisores = new Map<string, Decisor[]>();
+    if (socios.ativo) {
+      try {
+        decisores = await decisoresPorRaiz(
+          db,
+          candidates.rows
+            .map((c) => raizDoCnpj(c.data as Prospect))
+            .filter((r): r is string => !!r),
+        );
+      } catch (error) {
+        logger.warn("[prospecting] quadro de sócios indisponível; a tela segue sem decisor", {
+          organization_id: org,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     return ok(
       {
         configured: !!settings.rows.length,
         campaigns: campaigns.rows,
-        candidates: candidates.rows,
+        candidates: socios.ativo
+          ? candidates.rows.map((c) => {
+              const raiz = raizDoCnpj(c.data as Prospect);
+              return { ...c, decisores: (raiz && decisores.get(raiz)) || [] };
+            })
+          : candidates.rows,
+        socios: { ativo: socios.ativo, base_legal_ref: socios.base_legal_ref },
         agents: agents.rows,
         channels: channels.rows.filter((c) => {
           try {
@@ -156,6 +190,18 @@ export async function POST(req: NextRequest) {
         throw new ProspectingError("Avaliar empresa exige a tela.", 403);
       result = await avaliarEmpresa(pool, org, auth.actor.id, body);
       auditMetadata = { operation: body.action, nota: body.nota };
+    } else if (body.action === "socios_config") {
+      // Ligar o uso de dado de pessoa é decisão de alguém, com nome: só pela tela.
+      if (auth.actor.type !== "user")
+        throw new ProspectingError("Ligar o quadro de sócios exige a tela.", 403);
+      if (body.ativo && !body.base_legal_ref)
+        throw new ProspectingError(
+          "Informe a referência da avaliação de legítimo interesse para ligar.",
+          422,
+        );
+      const uso = await gravarUsoDeSocios(pool, org, auth.actor.id, body);
+      result = { ativo: uso.ativo };
+      auditMetadata = { operation: body.action, ativo: uso.ativo };
     } else if (body.action === "reference") {
       result = await marcarReferencia(pool, org, body);
       auditMetadata = { operation: body.action, ativa: body.ativa };

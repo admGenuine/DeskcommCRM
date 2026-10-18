@@ -56,7 +56,7 @@ A prospecção é o módulo que o fork mais mexe, e o original também evolui ne
 | `app/app/prospecting/_client.tsx`, seleção | "Ficar só com as melhores" (score do fork, `lib/prospecting/score.ts`) não tem ação própria: usa `select` na preparação e `select_in_queue` na fila pausada, do original, e só sobre as linhas que essas ações alteram |
 | `app/app/prospecting/_client.tsx`, parte 3 | O cartão "3. Acompanhar resultados" saiu da coluna da direita e fica abaixo da grade, na largura toda (a tabela tem 8 colunas). Num merge do original que mexa nesse cartão, o conflito aparece aqui |
 | `lib/prospecting/worker.ts`, fim de `tickProspecting` (Fase 3b) | Depois da análise grátis, a rodada da leitura por IA (`sinais/fila-ia.ts`), até o mesmo limite de 200s. O retorno da rodada ganhou `lidasComIa`. Depois, a sincronização das buscas no Maps do Mercado (`mercado/maps.ts`), que devolve `achadasNoMaps` |
-| `app/api/v1/prospecting/route.ts`, ações `read_sites_ai` e `search_maps_market` | Fechadas ao token, como as outras ações do fork; o GET devolve `gasto_ia_centavos` e `gasto_maps_usd` da campanha |
+| `app/api/v1/prospecting/route.ts`, ações `read_sites_ai`, `search_maps_market` e `socios_config` | Fechadas ao token, como as outras ações do fork (`socios_config` exige pessoa na tela); o GET devolve `gasto_ia_centavos` e `gasto_maps_usd` da campanha, o uso do quadro de sócios (`socios`) e, com ele ligado, `decisores` em cada candidato |
 | `lib/prospecting/provedor.ts` e `provider.ts` | Método opcional `startLookup` no `ProvedorDeBusca` (só a Apify implementa): procurar empresas conhecidas, um lugar por termo, numa execução só | Provedor sem o método não oferece a busca do Mercado no Maps; os três métodos do original não mudaram |
 
 ### Migrations do fork
@@ -71,6 +71,7 @@ As migrations do fork começam em **9001** (`<timestamp>_9001_<slug>.sql`), long
 | `9002_prospeccao_mercado` | `prospecting_market_companies`: a base pública da Receita no recorte da prospecção, escrita pela rotina `genuine-mercado.yml` |
 | `9003_prospeccao_gasto_com_ia` | `prospecting_campaigns.gasto_ia_centavos`: quanto a leitura por IA já gastou na campanha, para o teto por campanha. A partir desta, a descrição fica no cabeçalho do `.sql` (`-- manifest:`), não no `MANIFEST.md` |
 | `9004_prospeccao_gasto_com_maps` | `prospecting_campaigns.gasto_maps_usd`: gasto e reserva da busca no Maps das empresas do Mercado sem site, para o teto por campanha |
+| `9005_prospeccao_socios_do_mercado` | `prospecting_market_socios`: o quadro de sócios pessoa física das empresas do Mercado (só nome, qualificação e entrada), escrito pela rotina `genuine-mercado.yml` e lido só pelo servidor, para a organização que ligou o uso |
 
 Ao trazer uma release nova do original, o `baseline.sql` e o `MANIFEST.md` podem dar conflito no fim do arquivo: manter os dois lados, com os blocos do fork por último.
 
@@ -84,6 +85,7 @@ Baixa a base pública de CNPJ da Receita, filtra o recorte da prospecção (`scr
 - O GitHub só agenda (`schedule`) ou mostra o botão "Run workflow" de workflow que está no ramo padrão, e o padrão do fork é a `main`, espelho do original. Por isso a rotina anda junto com as releases. Para rodar fora delas: disparo pela API (`workflow_dispatch` com `gravar`, ref `producao`).
 - **Fonte:** a Receita recusa conexão de fora do Brasil, e o runner do GitHub é de fora; a rotina usa então o espelho mensal da Casa dos Dados (os mesmos arquivos). O aviso do job diz qual fonte foi usada.
 - O recorte (estados, CNAE) está nas variáveis `UFS`, `CNAE_PREFIXOS` e `CNAE_EXCLUIDOS` do workflow.
+- **Sócios (Fase 5):** baixa também `Socios*.zip` e `Qualificacoes.zip` e grava o quadro de sócios pessoa física das empresas do recorte em `prospecting_market_socios` (`scripts/genuine/mercado/carregar_socios.sql`, que troca a tabela inteira). **O repositório é público:** o CSV de sócios fica fora de `saida/` (o artefato) e nenhum nome vai para o log. A release pula o download só quando empresas E sócios do mês já estão no banco (ou quando a tabela de sócios ainda não existe, antes do `update.sh`).
 
 ## Como a VPS escolhe a versão
 

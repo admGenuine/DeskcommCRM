@@ -26,7 +26,15 @@ cabeçalho), conforme o dicionário de dados da Receita:
   Estabelecimentos: 30 colunas (cnpj_basico, ordem, dv, matriz/filial, ...)
   Empresas:          7 colunas (cnpj_basico, razão social, natureza, ...)
   Simples:           7 colunas (cnpj_basico, opção Simples, ..., opção MEI, ...)
-  Municipios, Cnaes: 2 colunas (código, descrição)
+  Socios:           11 colunas (cnpj_basico, identificador, nome, cpf/cnpj, qualificação, ...)
+  Municipios, Cnaes, Qualificacoes: 2 colunas (código, descrição)
+
+Sócios (Fase 5, decisão do dono em 18/10/2026: o decisor sai do quadro de
+sócios, sob legítimo interesse B2B registrado pela organização no app): só
+pessoa física (identificador 2, ou 3 quando estrangeira), só das empresas que
+ficaram no recorte, e só nome, qualificação e data de entrada. O CPF (que a
+Receita já publica mascarado), a faixa etária e o representante legal NÃO são
+lidos: o que não é preciso para achar o decisor não sai do arquivo.
 
 Uso:
   python3 filtrar_receita.py --dir ./receita --referencia 2026-09 \
@@ -57,6 +65,20 @@ E_DDD1, E_TEL1, E_DDD2, E_TEL2, E_EMAIL = 21, 22, 23, 24, 27
 E_COLUNAS = 30
 
 SITUACAO_ATIVA = "02"
+
+# Socios: posição de cada coluna usada (as outras nem são lidas).
+S_BASICO, S_IDENTIFICADOR, S_NOME, S_QUALIFICACAO, S_ENTRADA = 0, 1, 2, 4, 5
+S_COLUNAS_MINIMAS = 6
+IDENTIFICADORES_DE_PESSOA = frozenset({"2", "3"})
+
+COLUNAS_SOCIOS = [
+    "cnpj_basico",
+    "nome",
+    "qualificacao_codigo",
+    "qualificacao",
+    "data_entrada",
+    "referencia",
+]
 
 PORTES = {"01": "ME", "03": "EPP", "05": "DEMAIS"}
 PORTE_NAO_INFORMADO = "NAO_INFORMADO"
@@ -332,6 +354,55 @@ def filtrar(
     return saida, resumo
 
 
+def filtrar_socios(diretorio: str, basicos: set[str], referencia: str) -> tuple[list[dict], dict]:
+    """Os sócios pessoa física das empresas do recorte. Sem arquivo de Socios na
+    pasta, devolve vazio (e o resumo diz): a base de empresas segue valendo."""
+    socios_zips = arquivos(diretorio, "Socio")
+    resumo: dict = {"socios_arquivos": [os.path.basename(p) for p in socios_zips]}
+    if not socios_zips:
+        resumo.update({"socios": 0, "empresas_com_socio": 0})
+        return [], resumo
+    qualificacoes = tabela_de_codigos(arquivos(diretorio, "Qualifica"))
+    vistos: set[tuple[str, str, str]] = set()
+    saida: list[dict] = []
+    for caminho in socios_zips:
+        for linha in linhas_do_zip(caminho):
+            if len(linha) < S_COLUNAS_MINIMAS:
+                continue
+            b = so_digitos(linha[S_BASICO]).zfill(8)
+            if b not in basicos or linha[S_IDENTIFICADOR].strip() not in IDENTIFICADORES_DE_PESSOA:
+                continue
+            nome = " ".join(linha[S_NOME].split())
+            codigo = so_digitos(linha[S_QUALIFICACAO]).zfill(2)
+            if not nome or (b, nome, codigo) in vistos:
+                continue
+            vistos.add((b, nome, codigo))
+            saida.append(
+                {
+                    "cnpj_basico": b,
+                    "nome": nome,
+                    "qualificacao_codigo": codigo,
+                    "qualificacao": qualificacoes.get(codigo, qualificacoes.get(codigo.lstrip("0"), "")),
+                    "data_entrada": data_iso(linha[S_ENTRADA]),
+                    "referencia": referencia,
+                }
+            )
+    resumo["socios"] = len(saida)
+    resumo["empresas_com_socio"] = len({s["cnpj_basico"] for s in saida})
+    resumo["socios_por_qualificacao"] = dict(
+        Counter(s["qualificacao"] or s["qualificacao_codigo"] for s in saida).most_common(8)
+    )
+    return saida, resumo
+
+
+def gravar_csv_de_socios(linhas: list[dict], caminho: str) -> None:
+    with open(caminho, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=COLUNAS_SOCIOS, extrasaction="ignore", lineterminator="\n")
+        w.writeheader()
+        for linha in sorted(linhas, key=lambda x: (x["cnpj_basico"], x["nome"], x["qualificacao_codigo"])):
+            w.writerow(linha)
+
+
 def gravar_csv(linhas: list[dict], caminho: str) -> None:
     with open(caminho, "w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=COLUNAS_SAIDA, extrasaction="ignore", lineterminator="\n")
@@ -348,6 +419,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--cnae-prefixos", default="10", help="prefixos de CNAE, separados por vírgula")
     p.add_argument("--cnae-excluidos", default="1091102")
     p.add_argument("--saida", required=True)
+    p.add_argument("--saida-socios", default="", help="CSV dos sócios (Fase 5); vazio = não filtra sócios")
     p.add_argument("--resumo", required=True)
     a = p.parse_args(argv)
 
@@ -357,6 +429,10 @@ def main(argv: list[str] | None = None) -> int:
 
     linhas, resumo = filtrar(a.dir, a.referencia, ufs, prefixos, excluidos)
     gravar_csv(linhas, a.saida)
+    if a.saida_socios:
+        socios, resumo_socios = filtrar_socios(a.dir, {s["cnpj_basico"] for s in linhas}, a.referencia)
+        gravar_csv_de_socios(socios, a.saida_socios)
+        resumo.update(resumo_socios)
     with open(a.resumo, "w", encoding="utf-8") as f:
         json.dump(resumo, f, ensure_ascii=False, indent=2)
     print(json.dumps({k: resumo[k] for k in ("estabelecimentos_lidos", "no_recorte", "mei_removidos")}))
