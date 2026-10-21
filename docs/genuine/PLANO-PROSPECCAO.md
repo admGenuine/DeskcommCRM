@@ -1,6 +1,8 @@
 # Plano: Prospecção por mercado no Deskcomm (fork da Genuine)
 
 > Plano vivo do fork da Genuine. Toda sessão do Claude Code lê este arquivo antes de trabalhar na prospecção.
+>
+> Chegou agora? Comece por [`AGENTES.md`](AGENTES.md): o que já foi feito, o que vem a seguir e os acessos necessários, numa leitura só.
 
 ---
 

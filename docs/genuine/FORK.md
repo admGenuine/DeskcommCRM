@@ -1,6 +1,6 @@
 # Como o fork da Genuine funciona
 
-Este repositório (`admgenuine/DeskcommCRM`) é o fork do DeskcommCRM que roda na VPS da Genuine Digital. Este arquivo é a regra de operação do fork. Toda sessão que publicar versão, trazer novidade do projeto original ou mexer no kit de instalação lê este arquivo antes.
+Este repositório (`admgenuine/DeskcommCRM`) é o fork do DeskcommCRM que roda na VPS da Genuine Digital. Este arquivo é a regra de operação do fork. Toda sessão que publicar versão, trazer novidade do projeto original ou mexer no kit de instalação lê este arquivo antes. Para se inteirar do projeto inteiro numa leitura só, comece por [`AGENTES.md`](AGENTES.md).
 
 ## Os três ramos
 
