@@ -2,10 +2,10 @@
 
 > Para a IA que vai trabalhar neste repositório (Claude, Codex, Cursor ou outra). Leia inteiro antes de responder ou escrever código.
 >
-> **Onde este arquivo mora:** `docs/genuine/AGENTES.md`, junto com `docs/genuine/FORK.md` e `docs/genuine/PLANO-PROSPECCAO.md`. **Nada na raiz do repositório aponta para `docs/genuine/`**: o `CLAUDE.md`, o `AGENTS.md` e o `README.md` da raiz são do original e não sabem que o fork existe. Uma IA que abre o clone e lê só a raiz nunca chega aqui; quem a traz é o dono. Para conferir se continua assim (vazio quer dizer que sim):
+> **Onde este arquivo mora:** `docs/genuine/AGENTES.md`, junto com `docs/genuine/FORK.md` e `docs/genuine/PLANO-PROSPECCAO.md`. Na raiz, **só o `CLAUDE.md` e o `AGENTS.md` de `producao` apontam para cá**, com uma linha no topo; o resto da raiz é do original e não sabe que o fork existe. A `main` do fork não tem essa linha: quem abre o clone nela não chega aqui sozinho (seção 2.1). Para conferir quais arquivos da raiz apontam para cá:
 >
 > ```bash
-> git fetch origin && git grep -l 'docs/genuine' origin/producao -- CLAUDE.md AGENTS.md README.md
+> git fetch origin && git grep -l 'docs/genuine/AGENTES.md' origin/producao -- CLAUDE.md AGENTS.md README.md
 > ```
 >
 > Escrito em 20/10/2026 e revisto em 22/10/2026, com a `v1.84.0-genuine.6` publicada. O estado muda depressa: os comandos da seção 4 dizem como ele está agora e valem mais que as tabelas desta página.

@@ -36,6 +36,8 @@ Cada arquivo do núcleo que o fork altera fica listado aqui, com o motivo, porqu
 | `lib/ai/pontos/resolver.ts` | `prospecting_site_read` em `PONTOS_DE_TIER_ECONOMICO` | Sem escolha do dono, a leitura usa o modelo mais barato do provedor da organização, e não o do agente |
 | `lib/database.types.ts` | `prospecting_campaigns.gasto_ia_centavos` e `gasto_maps_usd` | Colunas das migrations 9003 e 9004 |
 | `tests/shell/colisao-de-migration.test.sh` | `unset GITHUB_REF` no começo | O teste herdava o número do PR do CI, e os PRs do fork (números pequenos) colidiam com os PRs inventados do teste: o PR #7 reprovava 9 casos. Defeito do original, candidato a contribuição |
+| `CLAUDE.md` | Uma linha no topo apontando para `docs/genuine/AGENTES.md` e para `producao` | Nada na raiz levava ao contexto do fork: quem abria o clone lia só a doutrina do original, e na `main` uma versão velha dela. Num conflito ao subir de release, manter a linha |
+| `AGENTS.md` | A mesma linha, para Codex, Cursor e os outros agentes que leem este arquivo e não o `CLAUDE.md` | Idem |
 
 Ao trazer uma release nova do original, essas linhas podem dar conflito. A resolução é sempre manter o lado do fork (`admgenuine` e `producao`).
 

@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+> **Fork da Genuine (`admGenuine/DeskcommCRM`):** antes de qualquer coisa, leia [`docs/genuine/AGENTES.md`](docs/genuine/AGENTES.md). Trabalhe a partir de `origin/producao`: a `main` deste fork é um espelho parado do original.
+
 > Contrato portável para **qualquer** agente de código (Codex, Cursor, OpenCode, Antigravity, Copilot).
 > Este arquivo é o núcleo. A **doutrina completa e não-negociável vive em [`CLAUDE.md`](CLAUDE.md)** —
 > leia-o antes de tocar em código. O mapa de toda a documentação está em [`docs/index.md`](docs/index.md).
