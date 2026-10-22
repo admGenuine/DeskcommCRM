@@ -1,5 +1,7 @@
 # CLAUDE.md — DeskcommCRM
 
+> **Fork da Genuine (`admGenuine/DeskcommCRM`):** antes de qualquer coisa, leia [`docs/genuine/AGENTES.md`](docs/genuine/AGENTES.md). Trabalhe a partir de `origin/producao`: a `main` deste fork é um espelho parado do original.
+
 > Instruções pra futuras sessões Claude trabalhando neste repo. Leitura obrigatória antes de qualquer task de código.
 
 **Este arquivo é a doutrina — a autoridade final sobre convenção e anti-pattern.** Complementos, na ordem em que ajudam:
