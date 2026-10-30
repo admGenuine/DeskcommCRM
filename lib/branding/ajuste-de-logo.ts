@@ -119,23 +119,49 @@ export const LARGURA_MINIMA_DO_LOGO = 512;
 const ESCADA_DE_LARGURAS = [LARGURA_MAXIMA_DO_LOGO, 640, LARGURA_MINIMA_DO_LOGO];
 
 /**
+ * Abaixo desta fração (da largura OU da altura) a caixa útil é "logo com
+ * margem": a barra lateral e o cartão de login pintam o arquivo numa ALTURA
+ * fixa, então 20% de volta transparente é o logo 20% menor na tela — e, com a
+ * margem de um PNG exportado da prancheta inteira, ele some. Acima da fração,
+ * a margem é a respiração que o designer deixou de propósito, e cortá-la seria
+ * mexer no que está bom.
+ */
+export const FRACAO_UTIL_MINIMA = 0.8;
+
+function temMargemQueEncolhe(imagem: ImagemDeLogo): imagem is ImagemDeLogo & { caixa: Caixa } {
+  if (!imagem.caixa) return false;
+  return (
+    imagem.caixa.largura < imagem.largura * FRACAO_UTIL_MINIMA ||
+    imagem.caixa.altura < imagem.altura * FRACAO_UTIL_MINIMA
+  );
+}
+
+/**
  * O logo pronto para enviar — ou a recusa antes de subir.
  *
  * Ordem das tentativas, e por quê nesta ordem:
- *   1. já cabe no teto → devolve o arquivo intacto (byte a byte), sem decodificar;
- *   2. recorte da margem transparente, no tamanho nativo → é a única tentativa
- *      que não perde resolução, então vem sozinha e primeiro;
- *   3. escada de larguras (800 → 640 → 512), sempre a partir da caixa útil;
- *   4. nada coube → `recusar`.
+ *   1. cabe no teto e não tem margem que encolha → devolve o arquivo intacto
+ *      (byte a byte);
+ *   2. cabe no teto mas a caixa útil é menor que `FRACAO_UTIL_MINIMA` → recorta
+ *      na caixa, no tamanho nativo, e entrega o recorte (se o recorte falhar,
+ *      vai o original — margem nunca vira recusa);
+ *   3. passa do teto → recorte da margem transparente, no tamanho nativo: é a
+ *      única tentativa que não perde resolução, então vem sozinha e primeiro;
+ *   4. escada de larguras (800 → 640 → 512), sempre a partir da caixa útil;
+ *   5. nada coube → `recusar`.
+ *
+ * O (2) existe porque o teto não era o único jeito de um logo sumir: um PNG de
+ * 60 KB exportado da prancheta inteira cabia, subia intacto e aparecia como um
+ * selo de 10 px na barra lateral. A inspeção roda no `<canvas>` daqui, então o
+ * servidor continua sem decodificar imagem nenhuma.
  */
 export async function ajustarLogo(
   arquivo: File,
   motor: MotorDeAjuste,
   limite: number = TAMANHO_MAXIMO_DO_LOGO,
 ): Promise<AjusteDeLogo> {
-  // O caminho comum: logo dentro do teto não é tocado. "Não piorar o que já
-  // está bom" é byte idêntico, não um reencode que troca nitidez por nada.
-  if (arquivo.size <= limite) return { arquivo, ajustado: false, recusar: false };
+  const intacto: AjusteDeLogo = { arquivo, ajustado: false, recusar: false };
+  const cabe = arquivo.size <= limite;
 
   let imagem: ImagemDeLogo;
   try {
@@ -144,7 +170,26 @@ export async function ajustarLogo(
     // Sem decodificador no ambiente (ou arquivo que o navegador não abre): o
     // original vai ao servidor e a recusa é a de sempre. Aqui dentro, falha
     // técnica NUNCA vira recusa na tela.
-    return { arquivo, ajustado: false, recusar: false };
+    return intacto;
+  }
+
+  if (cabe) {
+    // "Não piorar o que já está bom" é byte idêntico, não um reencode que troca
+    // nitidez por nada — a não ser que a margem esteja encolhendo o logo.
+    if (!temMargemQueEncolhe(imagem)) return intacto;
+    try {
+      const bytes = await motor.reencodar(arquivo, { caixa: imagem.caixa, escala: 1 });
+      if (bytes.length <= limite) {
+        return {
+          arquivo: new File([bytes], arquivo.name, { type: arquivo.type || "image/png" }),
+          ajustado: true,
+          recusar: false,
+        };
+      }
+    } catch {
+      // o recorte não deu; o original cabia e segue cabendo
+    }
+    return intacto;
   }
 
   const larguraUtil = imagem.caixa?.largura ?? imagem.largura;
