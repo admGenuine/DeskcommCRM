@@ -1,7 +1,9 @@
 # Fontes versionadas
 
 Os `.woff2` desta pasta são carregados por `next/font/local` em `app/layout.tsx`
-e `app/design/lib/fonts.ts`. Eles substituem o `next/font/google`, que baixava
+e `app/design/lib/fonts.ts`. A fonte do produto é a Host Grotesk (`app/layout.tsx`);
+a Atkinson Hyperlegible segue versionada porque o showcase `/design` a usa como par
+tipográfico. Eles substituem o `next/font/google`, que baixava
 as fontes do Google **durante o `next build`** — e o build do CI falhava sempre
 que essa busca falhava (`Can't resolve '@vercel/turbopack-next/internal/font/google/font'`).
 Com os arquivos aqui, o build não depende de rede para fonte.
@@ -13,6 +15,7 @@ que o `next/font/google` baixava.
 | Arquivo | Família | Pesos | Cobertura | Origem (fonts.gstatic.com) |
 |---|---|---|---|---|
 | `atkinson-hyperlegible-{400,700}-latin-latin-ext.woff2` | Atkinson Hyperlegible | 400, 700 | latin + latin-ext | `atkinsonhyperlegible/v12` |
+| `host-grotesk-{400,500,600,700}-latin-latin-ext.woff2` | Host Grotesk | 400, 500, 600, 700 | latin + latin-ext | `hostgrotesk/v5` |
 | `ibm-plex-mono-{400,500}-latin-latin-ext.woff2` | IBM Plex Mono | 400, 500 | latin + latin-ext | `ibmplexmono/v20` |
 | `bricolage-grotesque-200-800-latin.woff2` | Bricolage Grotesque | variável 200–800 | latin | `bricolagegrotesque/v9` |
 | `plus-jakarta-sans-200-800-latin.woff2` | Plus Jakarta Sans | variável 200–800 | latin | `plusjakartasans/v12` |

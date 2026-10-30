@@ -22,7 +22,8 @@ import {
  * A pessoa tem um PNG de 1536×1024 com o logo ocupando só o meio; o servidor
  * recusa por passar de 512 KB e ela trava na tela. O que este arquivo mede:
  *
- *   1. arquivo DENTRO do teto passa reto — byte a byte, sem decodificar nada;
+ *   1. arquivo DENTRO do teto e sem margem que encolha passa reto — byte a byte;
+ *      com margem transparente que encolhe o logo, é recortado mesmo cabendo;
  *   2. o recorte da margem transparente entrega o arquivo ≤512 KB com as
  *      dimensões EXATAS da caixa útil e o alfa intacto;
  *   3. quando o recorte não basta, a largura cai até caber (e para no piso);
@@ -89,12 +90,12 @@ function pngComMargemTransparente(): Uint8Array<ArrayBuffer> {
 }
 
 describe("ajustarLogo — cortar e reduzir ANTES de deixar o teto de 512 KB decidir", () => {
-  it("arquivo dentro do teto passa reto: o MESMO File, sem acordar o motor", async () => {
+  it("arquivo dentro do teto e sem margem passa reto: o MESMO File, sem reencodar", async () => {
     const motor = {
       inspecionar: vi.fn(motorDePngSintetico.inspecionar),
       reencodar: vi.fn(motorDePngSintetico.reencodar),
     };
-    const dentro = arquivoDe("mini.png", montarPng(64, 64, ruidoQuantizado(64, 64, 7)));
+    const dentro = arquivoDe("mini.png", montarPng(64, 64, opaco(ruidoQuantizado(64, 64, 7))));
     expect(dentro.size).toBeLessThan(LIMITE);
 
     const resultado = await ajustarLogo(dentro, motor);
@@ -102,7 +103,62 @@ describe("ajustarLogo — cortar e reduzir ANTES de deixar o teto de 512 KB deci
     expect(resultado.arquivo).toBe(dentro);
     expect(resultado.ajustado).toBe(false);
     expect(resultado.recusar).toBe(false);
-    expect(motor.inspecionar).not.toHaveBeenCalled();
+    // A inspeção roda para medir a margem; sem margem, nenhum reencode.
+    expect(motor.inspecionar).toHaveBeenCalledTimes(1);
+    expect(motor.reencodar).not.toHaveBeenCalled();
+  });
+
+  it("arquivo dentro do teto MAS com margem que encolhe o logo → recorta mesmo cabendo", async () => {
+    // O caso que o teto não pegava: PNG pequeno exportado da prancheta inteira,
+    // logo ocupando só o meio. Cabia, subia intacto e aparecia como um selo na
+    // barra lateral (altura fixa: 20% de margem é o logo 20% menor).
+    const caixa: Caixa = { x: 60, y: 40, largura: 120, altura: 80 };
+    const { largura, altura } = { largura: 240, altura: 160 };
+    const rgba = ruidoQuantizado(largura, altura, 0x2026);
+    for (let y = 0; y < altura; y++) {
+      for (let x = 0; x < largura; x++) {
+        const dentro =
+          x >= caixa.x && x < caixa.x + caixa.largura && y >= caixa.y && y < caixa.y + caixa.altura;
+        rgba[(y * largura + x) * 4 + 3] = dentro ? 255 : 0;
+      }
+    }
+    const pequeno = arquivoDe("prancheta.png", montarPng(largura, altura, rgba));
+    expect(pequeno.size, "cabe no teto ANTES do ajuste — o teto não é o gatilho").toBeLessThan(
+      LIMITE,
+    );
+
+    const resultado = await ajustarLogo(pequeno, motorDePngSintetico);
+
+    expect(resultado.recusar).toBe(false);
+    expect(resultado.ajustado).toBe(true);
+    const cortado = lerPng(new Uint8Array(await resultado.arquivo.arrayBuffer()));
+    expect({ largura: cortado.largura, altura: cortado.altura }).toEqual({
+      largura: caixa.largura,
+      altura: caixa.altura,
+    });
+  });
+
+  it("margem pequena (acima da fração útil) não é motivo para reencodar", async () => {
+    // 4 px de respiração num logo de 200 px é escolha do designer, não defeito.
+    const motor = {
+      inspecionar: vi.fn(motorDePngSintetico.inspecionar),
+      reencodar: vi.fn(motorDePngSintetico.reencodar),
+    };
+    const { largura, altura } = { largura: 200, altura: 100 };
+    const rgba = ruidoQuantizado(largura, altura, 0x2027);
+    for (let y = 0; y < altura; y++) {
+      for (let x = 0; x < largura; x++) {
+        const borda = x < 4 || y < 4 || x >= largura - 4 || y >= altura - 4;
+        rgba[(y * largura + x) * 4 + 3] = borda ? 0 : 255;
+      }
+    }
+    const respirado = arquivoDe("respirado.png", montarPng(largura, altura, rgba));
+    expect(respirado.size).toBeLessThan(LIMITE);
+
+    const resultado = await ajustarLogo(respirado, motor);
+
+    expect(resultado.arquivo).toBe(respirado);
+    expect(resultado.ajustado).toBe(false);
     expect(motor.reencodar).not.toHaveBeenCalled();
   });
 
