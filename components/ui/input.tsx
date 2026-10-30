@@ -17,7 +17,7 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
           //
           // `min-h` em vez de trocar o `h-10`: o campo que o chamador
           // dimensionou à mão continua com a medida dele.
-          "flex h-10 min-h-11 w-full rounded-sm border border-border bg-bg px-4 py-2 lg:min-h-0",
+          "flex h-10 min-h-11 w-full rounded-full border border-border bg-bg px-4 py-2 lg:min-h-0",
           // `text-base md:text-sm` — e isto é conserto de COMPORTAMENTO, não de
           // tipografia.
           //

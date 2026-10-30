@@ -192,8 +192,14 @@ describe("o que o sistema ajustou, com as duas cores (#2482)", () => {
       it("controle: sem a segunda cor, os motivos são os da principal sozinha", () => {
         // Se o filtro alcançasse o caso de uma cor só, o verde perderia os
         // avisos do escuro que ele de fato pinta.
+        //
+        // Sobre a rampa Radar o escuro parte do grau 300 (`REGUA_DO_PRODUTO.
+        // escuro.indices.accent`), e nesse grau o verde já alcança 3:1 sobre o
+        // fundo: o `accent_deslocado|escuro` que a rampa Sage produzia deixou
+        // de existir para esta semente. Sobra o aviso de redundância, que é o
+        // que prova que o filtro não engole o escuro de uma cor só. Medido, não
+        // ajustado: `resolverMarca` com `#1c261d` e `accent_dark_hex: null`.
         expect(sigla(caso.camada({ accent_hex: SEMENTE_CLARA, accent_dark_hex: null }))).toEqual([
-          "accent_deslocado|escuro|--color-accent",
           "redundancia_nao_cromatica_necessaria|escuro|success",
         ]);
       });

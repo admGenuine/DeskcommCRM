@@ -41,9 +41,22 @@ const REGUA = extrairRegua(CSS);
 
 /** A mesma fixture adversarial versionada de `branding-contraste.test.ts`. */
 const SEMENTES = [
-  "#0f172a", "#f5c518", "#ffffff", "#000000", "#808080", "#dc2626", "#22c55e",
-  "#f59e0b", "#2563eb", "#14b8a6", "#4b0082", "#e11d48", "#7c3aed", "#1a1f36",
-  "#fafafa", "#506d48",
+  "#0f172a",
+  "#f5c518",
+  "#ffffff",
+  "#000000",
+  "#808080",
+  "#dc2626",
+  "#22c55e",
+  "#f59e0b",
+  "#2563eb",
+  "#14b8a6",
+  "#4b0082",
+  "#e11d48",
+  "#7c3aed",
+  "#1a1f36",
+  "#fafafa",
+  "#506d48",
 ] as const;
 
 /** Quantos pares cada tema tem no globals.css de hoje — o piso da vacuidade. */
@@ -179,9 +192,7 @@ function paresPintados(tema: TemaDaRegua, bloco: Bloco): ParPintado[] {
     // `--color-accent-fg` é medido contra `--color-accent`: o `Fonte` que a
     // régua guarda (grau 6) é só a FORMA como o `globals.css` escreve esse
     // token, e na tela o fundo é o TOKEN, que o bloco emitido reescreve.
-    const tokenDoAlvo = papel.token.endsWith("-fg")
-      ? papel.token.slice(0, -"-fg".length)
-      : null;
+    const tokenDoAlvo = papel.token.endsWith("-fg") ? papel.token.slice(0, -"-fg".length) : null;
     const alvos =
       papel.contra === null
         ? superficies
@@ -219,28 +230,25 @@ const foco = (pares: readonly ParPintado[], superficie: string): number =>
 // ── Os testes ────────────────────────────────────────────────────────────────
 
 describe("o que o produto pinta — todo par, toda semente", () => {
-  it.each(SEMENTES)(
-    "%s: nenhum papel abaixo do piso, nos dois temas, no pixel emitido",
-    (hex) => {
-      const pintados = pintadosDaSemente(hex);
-      for (const { nome } of TEMAS) {
-        const pares = pintados[nome];
-        // Vacuidade POR SEMENTE E POR TEMA: uma instrumentação que devolvesse
-        // lista vazia passaria no filtro abaixo sem ter medido nada.
-        expect(pares.length, `${hex}/${nome}: nenhum par medido`).toBeGreaterThanOrEqual(
-          PARES_DE_HOJE[nome],
-        );
-        const reprovas = pares.filter((p) => !p.passa);
-        expect(
-          reprovas,
-          `${hex}/${nome}: ` +
-            reprovas
-              .map((r) => `${r.papel}×${r.superficie}=${r.razao.toFixed(2)}<${r.piso}`)
-              .join(" | "),
-        ).toEqual([]);
-      }
-    },
-  );
+  it.each(SEMENTES)("%s: nenhum papel abaixo do piso, nos dois temas, no pixel emitido", (hex) => {
+    const pintados = pintadosDaSemente(hex);
+    for (const { nome } of TEMAS) {
+      const pares = pintados[nome];
+      // Vacuidade POR SEMENTE E POR TEMA: uma instrumentação que devolvesse
+      // lista vazia passaria no filtro abaixo sem ter medido nada.
+      expect(pares.length, `${hex}/${nome}: nenhum par medido`).toBeGreaterThanOrEqual(
+        PARES_DE_HOJE[nome],
+      );
+      const reprovas = pares.filter((p) => !p.passa);
+      expect(
+        reprovas,
+        `${hex}/${nome}: ` +
+          reprovas
+            .map((r) => `${r.papel}×${r.superficie}=${r.razao.toFixed(2)}<${r.piso}`)
+            .join(" | "),
+      ).toEqual([]);
+    }
+  });
 
   it("a instrumentação vê os papéis frágeis — inclusive o de stop fixo por tema", () => {
     // O anel de foco usa stop FIXO por tema (500 no claro, 400 no escuro,
@@ -250,7 +258,10 @@ describe("o que o produto pinta — todo par, toda semente", () => {
     const pintados = pintadosDaSemente("#506d48");
     for (const { nome } of TEMAS) {
       const papeis = new Set(pintados[nome].map((p) => p.papel));
-      expect([...papeis].some((p) => p.includes(":focus-visible")), nome).toBe(true);
+      expect(
+        [...papeis].some((p) => p.includes(":focus-visible")),
+        nome,
+      ).toBe(true);
       expect([...papeis], nome).toContain("--ring");
       expect(papeis.size, nome).toBe(REGUA[nome].papeis.length);
     }
@@ -312,7 +323,7 @@ describe("o bloco emitido não pode contradizer o globals.css", () => {
   it("a caminhada de fato ANDA — e a emissão anda junto", () => {
     // Guarda de vacuidade da sabotagem: se nenhuma semente deslocasse, emitir a
     // rampa crua e emiti-la deslocada dariam o mesmo texto, e os testes acima
-    // seriam verdes contra o defeito. 13 combos (semente × tema) andam — o mesmo
+    // seriam verdes contra o defeito. 10 combos (semente × tema) andam — o mesmo
     // número que `branding-contraste.test.ts` mede na derivação.
     let andaram = 0;
     for (const hex of SEMENTES) {
@@ -332,35 +343,31 @@ describe("o bloco emitido não pode contradizer o globals.css", () => {
         );
       }
     }
-    expect(andaram).toBe(13);
+    expect(andaram).toBe(10);
   });
 });
 
 describe("controle positivo — o produto sem marca não pode se mexer", () => {
-  it("a Sage reproduz, pintada, os números do design system", () => {
-    // `#506d48` é a semente do próprio produto: ela não desloca nada, e os pares
-    // pintados têm que dar o que o `globals.css` sempre deu. Se estes números
-    // mudarem, o conserto vazou para quem não pediu.
-    const cor = corDe("#506d48");
+  it("a Radar reproduz, pintada, os números do design system", () => {
+    // `#0b0c1e` é a semente do próprio produto: ela não desloca nada, e os pares
+    // pintados têm que dar o que o `globals.css` dá. Se estes números mudarem, o
+    // conserto vazou para quem não pediu.
+    const SEMENTE = REGUA_DO_PRODUTO.rampaDoProduto[6];
+    const cor = corDe(SEMENTE);
     expect(cor.derivada?.claro.deslocamento).toBe(0);
     expect(cor.derivada?.escuro.deslocamento).toBe(0);
 
-    const p = pintadosDaSemente("#506d48");
-    // Claro: os dois números que `contraste.ts` documenta como medidos à mão.
-    expect(foco(p.claro, "--color-bg")).toBeCloseTo(3.79, 2);
-    expect(foco(p.claro, "--color-surface-elevated")).toBeCloseTo(3.6, 2);
-    // Escuro: 6,30 e 5,22 na rampa DERIVADA da semente; os literais do
-    // `globals.css` (`#82a077`) dão 6,31 e 5,23 — a rampa reproduz a Sage com
-    // Δ ≤ 2/255 por canal, e a diferença de 0,01 é esse arredondamento.
-    expect(foco(p.escuro, "--color-bg")).toBeCloseTo(6.3, 2);
-    expect(foco(p.escuro, "--color-surface-elevated")).toBeCloseTo(5.22, 2);
-    // No escuro o anel NÃO fica apertado contra as bases: quem aperta é o
-    // `-soft` COMPOSTO. 4,58 aqui — é este o par que a prova em tela reportou
-    // como "4,58 no escuro", e não `foco × --color-bg` (6,30). Nos literais do
-    // `globals.css` o mesmo par dá 4,59, e `superficiesDoTema` documenta o trio
-    // 4,99 · 4,59 · 4,02.
-    expect(foco(p.escuro, "--color-accent-soft@--color-surface")).toBeCloseTo(4.58, 2);
-    expect(foco(p.escuro, "--color-accent-soft@--color-surface-elevated")).toBeCloseTo(4.03, 2);
+    const p = pintadosDaSemente(SEMENTE);
+    // Claro: os dois números que `branding-contraste.test.ts` mede na régua.
+    expect(foco(p.claro, "--color-bg")).toBeCloseTo(12.27, 2);
+    expect(foco(p.claro, "--color-surface-elevated")).toBeCloseTo(11.65, 2);
+    // Escuro: o anel pinta o 300 (#818396) sobre as bases.
+    expect(foco(p.escuro, "--color-bg")).toBeCloseTo(4.89, 2);
+    expect(foco(p.escuro, "--color-surface-elevated")).toBeCloseTo(4.06, 2);
+    // No escuro quem aperta é o `-soft` COMPOSTO: 3,73 e 3,29 — acima do piso 3,0,
+    // e são estes os pares que decidem que o accent escuro é o 300 e não o 400.
+    expect(foco(p.escuro, "--color-accent-soft@--color-surface")).toBeCloseTo(3.73, 2);
+    expect(foco(p.escuro, "--color-accent-soft@--color-surface-elevated")).toBeCloseTo(3.29, 2);
   });
 
   it("sem marca configurada nada é injetado, e a tela fica como está", () => {
