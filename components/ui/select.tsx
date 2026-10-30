@@ -27,7 +27,7 @@ const SelectTrigger = React.forwardRef<
       // `h-9`: assim o seletor que o chamador dimensionou à mão não muda.
       //
       // `lg:` é o mesmo corte de `components/ui/button.tsx`.
-      "flex h-9 min-h-11 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-sm ring-offset-background focus:ring-1 focus:ring-ring focus:outline-hidden disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-muted-foreground lg:min-h-0 [&>span]:line-clamp-1",
+      "flex h-9 min-h-11 w-full items-center justify-between rounded-full border border-input bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-sm ring-offset-background focus:ring-1 focus:ring-ring focus:outline-hidden disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-muted-foreground lg:min-h-0 [&>span]:line-clamp-1",
       className,
     )}
     {...props}

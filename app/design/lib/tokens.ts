@@ -2,7 +2,7 @@
 // "Soft-tech / calmo" — neutros desaturados (greige/warm-gray), accent não-saturado.
 // 5-Constraint Rule applied: Shape, Color (exact hex), Typography, Motion, Layout.
 
-export type PaletteId = "sage" | "clay" | "mist" | "plum" | "olive";
+export type PaletteId = "radar" | "clay" | "mist" | "plum" | "olive";
 export type TypoId = "bricolage-jakarta" | "fraunces-manrope" | "atkinson" | "source-plex";
 export type DensityId = "aerada" | "equilibrada" | "compacta";
 export type ThemeId = "light" | "dark";
@@ -38,14 +38,14 @@ export type PaletteDef = {
 // ─── Palettes ──────────────────────────────────────────────────────────────
 
 export const PALETTES: Record<PaletteId, PaletteDef> = {
-  sage: {
-    id: "sage",
-    name: "Sage",
-    description: "Verde-erva desaturado. Calmo, confiável, vegetal.",
+  radar: {
+    id: "radar",
+    name: "Radar",
+    description: "Preto com um fio de azul (#0b0c1e). Monocromático, plano, editorial.",
     accent: {
-      50: "#f3f6f1", 100: "#e4ebe0", 200: "#c8d6c1", 300: "#a4ba9a",
-      400: "#82a077", 500: "#67885d", 600: "#506d48", 700: "#41573b",
-      800: "#374731", 900: "#2f3c2b", 950: "#171f15",
+      50: "#f4f5f8", 100: "#dedfe6", 200: "#b5b7c3", 300: "#818396",
+      400: "#52556d", 500: "#2d3047", 600: "#0b0c1e", 700: "#0f101f",
+      800: "#12131f", 900: "#15161f", 950: "#1b1c22",
     },
     neutralLight: {
       50: "#faf9f6", 100: "#f3f1ec", 200: "#e7e3da", 300: "#d2cdbf",

@@ -262,7 +262,10 @@ describe("diagnóstico não vaza identidade", () => {
     // Mesma disciplina de `contraste.ts`: com a tabela por organização, esses
     // motivos passam a conviver num log só, e a cor de uma empresa não tem por
     // que aparecer no diagnóstico de outra.
-    const sementes = ["#f5c518", "#808080", "#0f172a", "#dc2626"];
+    // Só sementes que GERAM motivo sob a régua de hoje: a navy #0f172a não anda
+    // mais no escuro (o accent parte do 300 e já cabe), então entraria com zero
+    // motivos e furaria a guarda de vacuidade abaixo.
+    const sementes = ["#f5c518", "#808080", "#22c55e", "#dc2626"];
     for (const hex of sementes) {
       const marca = resolverMarca([camadaDoAmbiente({ APP_ACCENT_HEX: hex })], REGUA);
       expect(marca.motivos.length).toBeGreaterThan(0);
