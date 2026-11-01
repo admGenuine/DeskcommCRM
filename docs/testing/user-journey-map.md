@@ -2327,7 +2327,7 @@ alimentado com 7 classes, emitiu **4** — nenhuma das 3 com barra.
 
 | caso | prioridade | estado |
 |---|---|---|
-| Tokens resolvem em claro e escuro depois do `@theme inline` | `[P0]` | **PASS**, medido por `getComputedStyle` em `tests/sonda-tailwind-4.ts`: `--color-bg` = `#faf9f6` claro / `#161510` escuro, e `body` acompanha |
+| Tokens resolvem em claro e escuro depois do `@theme inline` | `[P0]` | **PASS**, medido por `getComputedStyle` em `tests/sonda-tailwind-4.ts`: `--color-bg` = `#faf9f6` claro / `#0d0d0e` escuro, e `body` acompanha |
 | A auto-referência do `@theme inline` (`--color-bg: var(--color-bg)`) não vence o `:root` autoral | `[P0]` | **PASS.** A teoria é de cascata (sem layer vence layer); a medida é a linha acima. Congelado em `tests/unit/tailwind-tokens.test.ts`, que reprova se alguém embrulhar `:root` num `@layer` |
 | `class="border"` sem cor continua na cor de borda do produto, e não em `currentColor` | `[P0]` | **PASS**: `rgb(231,227,218)` (claro) e `rgb(51,49,42)` (escuro) — os dois são o `--color-border` do tema |
 | As classes de opacidade revividas pintam de verdade | `[P1]` | **PASS parcial**: `bg-muted/40` medido em elemento real do onboarding, com alfa `0.4` nos dois temas. O antes/depois confirma 25 bordas e 8 fundos que passaram de cor chapada / transparente para cor com alfa. As demais estão no CSS construído, mas **não foram medidas uma a uma na tela** |

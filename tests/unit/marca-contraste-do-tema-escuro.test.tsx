@@ -33,7 +33,13 @@ import { REGUA_DO_PRODUTO } from "@/lib/branding/regua-do-produto";
 afterEach(cleanup);
 
 const PRINCIPAL = derivarMarca("#1c261d", REGUA_DO_PRODUTO);
-const SEGUNDA = derivarMarca("#d9ac62", REGUA_DO_PRODUTO);
+// A segunda cor da issue era a âmbar #d9ac62. Na régua Radar o accent escuro é o
+// grau 50 de qualquer rampa (botão quase branco), e o contraste do texto preto
+// sobre ele fica entre 19,1 e 19,3 para toda semente: a âmbar (19,18) e o verde
+// (19,21) arredondam ao MESMO "19,2:1", e a guarda abaixo não distinguiria
+// nada. O vermelho #dc2626 (19,08 → "19,1:1") é a semente da fixture mais
+// distante do verde; a escala dele também difere, o que é o que a tira mede.
+const SEGUNDA = derivarMarca("#dc2626", REGUA_DO_PRODUTO);
 
 function razaoExibida(tokens: TokensDoTema): string {
   const par = tokens.pares.find((p) => p.papel === "--color-accent-fg");
@@ -84,7 +90,7 @@ const FORM_GRAVADA = {
   logo_url: null,
   logo_path: null,
   accent_hex: "#1c261d",
-  accent_dark_hex: "#d9ac62",
+  accent_dark_hex: "#dc2626",
   show_powered_by: false,
 } as const;
 
@@ -128,7 +134,7 @@ describe("tira de tons da marca: a escala desenhada é a da cor que ela marca", 
   });
 
   it("⭐ com a segunda cor, a tira do escuro desenha a escala DELA e marca o degrau dela", () => {
-    renderizarFormulario("#1c261d", "#d9ac62");
+    renderizarFormulario("#1c261d", "#dc2626");
 
     const todas = tiras();
     // Duas escalas → duas tiras. Com o defeito de volta (escala única) esta é a
@@ -159,7 +165,7 @@ describe("tira de tons da marca: a escala desenhada é a da cor que ela marca", 
   });
 
   it("a legenda e os hex não mudam: cada papel continua com o seu tom", () => {
-    renderizarFormulario("#1c261d", "#d9ac62");
+    renderizarFormulario("#1c261d", "#dc2626");
 
     const doEscuro = screen.getByText("Botões no modo escuro").closest("li");
     if (!doEscuro) throw new Error("sem a linha do escuro");

@@ -53,9 +53,9 @@ export const PALETTES: Record<PaletteId, PaletteDef> = {
       800: "#2e2c26", 900: "#1c1a16", 950: "#0e0d0a",
     },
     neutralDark: {
-      50: "#f5f4ef", 100: "#e6e4dc", 200: "#bbb8ac", 300: "#8e8b7f",
-      400: "#605e54", 500: "#444239", 600: "#33312a", 700: "#272620",
-      800: "#1d1c17", 900: "#161510", 950: "#0c0b08",
+      50: "#f2f2f1", 100: "#e6e6e8", 200: "#a8aaaf", 300: "#9a9ca2",
+      400: "#74767b", 500: "#5e6067", 600: "#33353a", 700: "#26272a",
+      800: "#1b1c1e", 900: "#121314", 950: "#0d0d0e",
     },
     states: {
       light: { success: "#5a8a5f", warning: "#b07a2b", error: "#a94a3c", info: "#4a7a93" },
@@ -63,7 +63,7 @@ export const PALETTES: Record<PaletteId, PaletteDef> = {
     },
     surfaces: {
       light: { bg: "#faf9f6", surface: "#ffffff", surfaceElevated: "#f5f3ee", text: "#1c1a16", textMuted: "#5d594f", border: "#e7e3da" },
-      dark:  { bg: "#161510", surface: "#1d1c17", surfaceElevated: "#272620", text: "#f5f4ef", textMuted: "#8e8b7f", border: "#33312a" },
+      dark:  { bg: "#0d0d0e", surface: "#121314", surfaceElevated: "#17181a", text: "#f2f2f1", textMuted: "#a8aaaf", border: "#26272a" },
     },
   },
   clay: {

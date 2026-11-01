@@ -5,14 +5,17 @@
  * semente só força UM dos dois temas a um tom que a marca não usa:
  *
  *   | semente       | botão claro  | botão escuro                 |
- *   | `#1c261d`     | `#1c261d`    | `#8a948b` (fora da paleta)   |
+ *   | `#1c261d`     | `#1c261d`    | `#f4f5f4` (fora da paleta)   |
+ *
+ * (A issue mediu `#8a948b` com o escuro partindo do grau 300; na régua Radar o
+ * escuro parte do 50 e o tom de fora da paleta é o quase branco esverdeado.)
  *   | `#d9ac62`     | `#655131`    | `#e9b762`                    |
  *
  * Este arquivo cobre os quatro critérios de aceite da issue:
  *
  *   1. SEM a segunda cor, o CSS é o de hoje — os dois casos da tabela acima
- *      são a régua: `#1c261d` no claro e `#8a948b` no escuro, que é
- *      EXATAMENTE o que a issue mediu antes do campo existir.
+ *      são a régua: `#1c261d` no claro e `#f4f5f4` no escuro, pela MESMA
+ *      derivação que a issue mediu antes do campo existir.
  *   2. COM as duas, o claro sai `#1c261d` e o escuro sai o tom derivado da
  *      segunda semente (`#d9ac62` ou o mais próximo que passe no piso — o
  *      valor sai da MESMA `derivarMarca`, nunca de uma literal aqui).
@@ -50,7 +53,7 @@ const SEMENTE_CLARA = "#1c261d";
 const SEMENTE_ESCURA = "#d9ac62";
 
 /** O tom que o escuro tem HOJE quando só existe a semente verde. */
-const ESCURO_DE_HOJE = "#8a948b";
+const ESCURO_DE_HOJE = "#f4f5f4";
 
 /** O accent do tema escuro derivado da segunda semente, pela mesma régua. */
 const ESCURO_DA_SEGUNDA = derivarMarca(SEMENTE_ESCURA, REGUA_DO_PRODUTO).escuro.accent;
@@ -98,7 +101,10 @@ describe("cor da marca no tema escuro (#2482)", () => {
   for (const caso of CASOS) {
     describe(caso.rotulo, () => {
       it("sem a segunda cor, o CSS continua sendo o de hoje — os dois casos da tabela", () => {
-        const css = cssDaMarca(corDe(caso.camada({ accent_hex: SEMENTE_CLARA, accent_dark_hex: null })), caso.escopo).css;
+        const css = cssDaMarca(
+          corDe(caso.camada({ accent_hex: SEMENTE_CLARA, accent_dark_hex: null })),
+          caso.escopo,
+        ).css;
         const { claro, escuro } = blocos(css);
 
         // Tabela da issue, coluna "verde muito escuro": claro = a própria
@@ -111,7 +117,10 @@ describe("cor da marca no tema escuro (#2482)", () => {
       });
 
       it("com as duas, o claro usa a primeira e o escuro deriva da segunda", () => {
-        const css = cssDaMarca(corDe(caso.camada({ accent_hex: SEMENTE_CLARA, accent_dark_hex: SEMENTE_ESCURA })), caso.escopo).css;
+        const css = cssDaMarca(
+          corDe(caso.camada({ accent_hex: SEMENTE_CLARA, accent_dark_hex: SEMENTE_ESCURA })),
+          caso.escopo,
+        ).css;
         const { claro, escuro } = blocos(css);
 
         // Critério 2: claro `#1c261d` (o verde), escuro o tom da âmbar que
@@ -126,7 +135,10 @@ describe("cor da marca no tema escuro (#2482)", () => {
       });
 
       it("os dois blocos seguem declarando o MESMO conjunto de tokens", () => {
-        const css = cssDaMarca(corDe(caso.camada({ accent_hex: SEMENTE_CLARA, accent_dark_hex: SEMENTE_ESCURA })), caso.escopo).css;
+        const css = cssDaMarca(
+          corDe(caso.camada({ accent_hex: SEMENTE_CLARA, accent_dark_hex: SEMENTE_ESCURA })),
+          caso.escopo,
+        ).css;
         const { claro, escuro } = blocos(css);
         expect(tokens(escuro)).toEqual(tokens(claro));
         expect(tokens(claro).length).toBeGreaterThan(0);
@@ -135,9 +147,12 @@ describe("cor da marca no tema escuro (#2482)", () => {
       it("a segunda cor pinta igual à primeira quando as duas são a mesma", () => {
         // Controle: se o par só funcionasse para valores diferentes, o teste
         // acima provaria um caso e não a regra.
-        const css = cssDaMarca(corDe(caso.camada({ accent_hex: SEMENTE_CLARA, accent_dark_hex: SEMENTE_CLARA })), caso.escopo).css;
+        const css = cssDaMarca(
+          corDe(caso.camada({ accent_hex: SEMENTE_CLARA, accent_dark_hex: SEMENTE_CLARA })),
+          caso.escopo,
+        ).css;
         const { escuro } = blocos(css);
-        expect(escuro).toContain("--color-accent: #8a948b;");
+        expect(escuro).toContain(`--color-accent: ${ESCURO_DE_HOJE};`);
       });
     });
   }
@@ -172,8 +187,13 @@ describe("o que o sistema ajustou, com as duas cores (#2482)", () => {
   for (const caso of CASOS) {
     describe(caso.rotulo, () => {
       it("verde + âmbar: só o escuro da âmbar fala, e nenhum alerta de erro ou sucesso sobra", () => {
+        // Com o escuro partindo do grau 50 a âmbar não anda (o stop 50 dela já
+        // folga sobre #0d0d0e), então o escuro dela não tem o que dizer: a lista
+        // é vazia. O que o filtro NÃO pode deixar passar continua medido pelas
+        // duas asserções seguintes e pelo caso roxo + cinza. (Era
+        // `accent_deslocado|escuro` quando o escuro partia do 300.)
         const camada = caso.camada({ accent_hex: SEMENTE_CLARA, accent_dark_hex: SEMENTE_ESCURA });
-        expect(sigla(camada)).toEqual(["accent_deslocado|escuro|--color-accent"]);
+        expect(sigla(camada)).toEqual([]);
         expect(textos(camada)).not.toMatch(/erro|sucesso/);
       });
 
@@ -193,15 +213,16 @@ describe("o que o sistema ajustou, com as duas cores (#2482)", () => {
         // Se o filtro alcançasse o caso de uma cor só, o verde perderia os
         // avisos do escuro que ele de fato pinta.
         //
-        // Sobre a rampa Radar o escuro parte do grau 300 (`REGUA_DO_PRODUTO.
-        // escuro.indices.accent`), e nesse grau o verde já alcança 3:1 sobre o
-        // fundo: o `accent_deslocado|escuro` que a rampa Sage produzia deixou
-        // de existir para esta semente. Sobra o aviso de redundância, que é o
-        // que prova que o filtro não engole o escuro de uma cor só. Medido, não
-        // ajustado: `resolverMarca` com `#1c261d` e `accent_dark_hex: null`.
-        expect(sigla(caso.camada({ accent_hex: SEMENTE_CLARA, accent_dark_hex: null }))).toEqual([
-          "redundancia_nao_cromatica_necessaria|escuro|success",
-        ]);
+        // Sobre a rampa Radar o escuro parte do grau 50 (`REGUA_DO_PRODUTO.
+        // escuro.indices.accent`): o verde não anda e o accent escuro dele é
+        // quase branco, longe de toda semântica — nem deslocamento nem
+        // redundância para avisar. A lista vazia é o medido para esta semente
+        // (`resolverMarca` com `#1c261d` e `accent_dark_hex: null`); quem prova
+        // que o filtro não engole o escuro de uma cor só é o caso roxo + cinza
+        // acima, em que o escuro fala.
+        expect(sigla(caso.camada({ accent_hex: SEMENTE_CLARA, accent_dark_hex: null }))).toEqual(
+          [],
+        );
       });
     });
   }

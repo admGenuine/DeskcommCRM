@@ -323,8 +323,8 @@ describe("o bloco emitido não pode contradizer o globals.css", () => {
   it("a caminhada de fato ANDA — e a emissão anda junto", () => {
     // Guarda de vacuidade da sabotagem: se nenhuma semente deslocasse, emitir a
     // rampa crua e emiti-la deslocada dariam o mesmo texto, e os testes acima
-    // seriam verdes contra o defeito. 10 combos (semente × tema) andam — o mesmo
-    // número que `branding-contraste.test.ts` mede na derivação.
+    // seriam verdes contra o defeito. 6 combos (semente × tema) andam, todos no
+    // claro — o mesmo número que `branding-contraste.test.ts` mede na derivação.
     let andaram = 0;
     for (const hex of SEMENTES) {
       const cor = corDe(hex);
@@ -343,7 +343,7 @@ describe("o bloco emitido não pode contradizer o globals.css", () => {
         );
       }
     }
-    expect(andaram).toBe(10);
+    expect(andaram).toBe(6);
   });
 });
 
@@ -361,13 +361,16 @@ describe("controle positivo — o produto sem marca não pode se mexer", () => {
     // Claro: os dois números que `branding-contraste.test.ts` mede na régua.
     expect(foco(p.claro, "--color-bg")).toBeCloseTo(12.27, 2);
     expect(foco(p.claro, "--color-surface-elevated")).toBeCloseTo(11.65, 2);
-    // Escuro: o anel pinta o 300 (#818396) sobre as bases.
-    expect(foco(p.escuro, "--color-bg")).toBeCloseTo(4.89, 2);
-    expect(foco(p.escuro, "--color-surface-elevated")).toBeCloseTo(4.06, 2);
-    // No escuro quem aperta é o `-soft` COMPOSTO: 3,73 e 3,29 — acima do piso 3,0,
-    // e são estes os pares que decidem que o accent escuro é o 300 e não o 400.
-    expect(foco(p.escuro, "--color-accent-soft@--color-surface")).toBeCloseTo(3.73, 2);
-    expect(foco(p.escuro, "--color-accent-soft@--color-surface-elevated")).toBeCloseTo(3.29, 2);
+    // Escuro: o accent é o 50 (botão claro), mas o anel segue pintando o 300
+    // (#818396) sobre as bases do site Radar (#0d0d0e e #17181a).
+    expect(foco(p.escuro, "--color-bg")).toBeCloseTo(5.199, 2);
+    expect(foco(p.escuro, "--color-surface-elevated")).toBeCloseTo(4.755, 2);
+    // No escuro quem aperta é o `-soft` COMPOSTO (branco a 10% sobre as superfícies):
+    // 3,85 e 3,64 — acima do piso 3,0. Com o alfa 0,16 de antes o composto sobre
+    // `--color-surface-elevated` clareava e este par caía a 3,00: é o alfa do soft,
+    // e não o grau do anel, que este número decide.
+    expect(foco(p.escuro, "--color-accent-soft@--color-surface")).toBeCloseTo(3.849, 2);
+    expect(foco(p.escuro, "--color-accent-soft@--color-surface-elevated")).toBeCloseTo(3.638, 2);
   });
 
   it("sem marca configurada nada é injetado, e a tela fica como está", () => {
@@ -381,13 +384,14 @@ describe("a navy #0f172a — o defeito que a prova em tela achou", () => {
   it("os quatro números do anel de foco, agora acima do piso", () => {
     // ANTES (medido no browser, servidor de dev na 3111): claro 10,77 e 10,22;
     // escuro 2,86 e 2,37 — os dois de baixo abaixo do piso 3,0, porque o anel
-    // pintava `--color-accent-400: #545f77`, o stop CRU. O tema escuro anda -1,
-    // então o anel agora pinta `#828a9d`, o stop 300 da rampa da marca.
+    // pintava `--color-accent-400: #545f77`, o stop CRU. Hoje o anel escuro é o
+    // 300 da régua, `#828a9d` na rampa da navy, sem deslocamento (o accent escuro
+    // parte do 50 e já folga); os números são sobre as bases do site Radar.
     const p = pintadosDaSemente("#0f172a");
     expect(foco(p.claro, "--color-bg")).toBeCloseTo(10.77, 2);
     expect(foco(p.claro, "--color-surface-elevated")).toBeCloseTo(10.22, 2);
-    expect(foco(p.escuro, "--color-bg")).toBeCloseTo(5.28, 2);
-    expect(foco(p.escuro, "--color-surface-elevated")).toBeCloseTo(4.39, 2);
+    expect(foco(p.escuro, "--color-bg")).toBeCloseTo(5.616, 2);
+    expect(foco(p.escuro, "--color-surface-elevated")).toBeCloseTo(5.137, 2);
     for (const superficie of ["--color-bg", "--color-surface-elevated"] as const) {
       expect(foco(p.escuro, superficie), superficie).toBeGreaterThanOrEqual(PISOS.componente);
     }
