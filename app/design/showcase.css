@@ -631,7 +631,7 @@
   padding: 20px;
 }
 .ds-preview-light { background: #faf9f6; color: #1c1a16; }
-.ds-preview-dark  { background: #161510; color: #f5f4ef; }
+.ds-preview-dark  { background: #0d0d0e; color: #f2f2f1; }
 .ds-preview-label {
   font-family: var(--ds-font-mono);
   font-size: 10px;

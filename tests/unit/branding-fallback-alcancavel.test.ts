@@ -97,17 +97,18 @@ describe("`fallback_at` pelo `.env` — o caminho que existe", () => {
   });
 
   it("(b) cor boa NÃO acende — o alarme apaga, que é a outra metade do laço", () => {
-    // `#0b3d2e` não é neutro: ele produz motivos (`accent_deslocado` e
-    // `redundancia_nao_cromatica_necessaria`, medidos). É o caso que separa
+    // `#22c55e` não é neutro: ele produz motivos (`accent_deslocado` e
+    // `semantica_deslocada` no claro, medidos; era `#0b3d2e`, que com o escuro
+    // partindo do grau 50 deixou de produzir motivo algum). É o caso que separa
     // `CODIGOS_DE_RECUSA` de "qualquer motivo" — uma implementação ingênua
     // deixaria `fallback_at` aceso em quase toda marca, e alarme sempre aceso é
     // alarme que ninguém lê.
     const marca = resolverMarca(
-      [camadaDoAmbiente({ APP_ACCENT_HEX: "#0b3d2e" })],
+      [camadaDoAmbiente({ APP_ACCENT_HEX: "#22c55e" })],
       REGUA_DO_PRODUTO,
     );
     expect(marca.motivos.length).toBeGreaterThan(0);
-    expect(fallbackDoAmbiente("#0b3d2e")).toBeNull();
+    expect(fallbackDoAmbiente("#22c55e")).toBeNull();
 
     // Chave declarada e vazia é o estado de fábrica do `install.sh`, não defeito.
     expect(fallbackDoAmbiente("")).toBeNull();
@@ -119,10 +120,7 @@ describe("`fallback_at` pelo `.env` — o caminho que existe", () => {
     // devolve `#0ea5e9`, que satisfaz o CHECK do banco. Recusar aqui faria o
     // operador que digitou a cor certa sem `#` ver a cor do produto e concluir
     // que o campo não funciona.
-    const marca = resolverMarca(
-      [camadaDoAmbiente({ APP_ACCENT_HEX: "0ea5e9" })],
-      REGUA_DO_PRODUTO,
-    );
+    const marca = resolverMarca([camadaDoAmbiente({ APP_ACCENT_HEX: "0ea5e9" })], REGUA_DO_PRODUTO);
     expect(marca.cor?.semente).toBe("#0ea5e9");
     expect(marca.origens.cor).toBe("env");
     expect(fallbackDoAmbiente("0ea5e9")).toBeNull();

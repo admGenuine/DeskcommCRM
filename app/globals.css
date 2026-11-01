@@ -28,7 +28,11 @@
    DeskcommCRM — Design System tokens (Radar palette · density Aerada)
    Source of truth: /app/design/lib/tokens.ts (PALETTES.radar)
    Radar = preto com um fio de azul (semente #0b0c1e): a rampa é a que
-   `rampaDeSemente` deriva dela, e no escuro o accent sobe para o grau 300.
+   `rampaDeSemente` deriva dela. No escuro o accent é o grau 50 — botão claro
+   sobre fundo quase preto, como o `.btn` do site (`background: var(--ink)`).
+   As superfícies e os neutros do escuro são os tokens do próprio site
+   (`--paper`, `--card`, `--panel`, `--line`, `--ink*`, `--m0..m4`): cinza
+   frio, sem o tom quente do upstream.
    Light + dark drawn separately (NOT inverted).
    ───────────────────────────────────────────────────────────────────────── */
 
@@ -344,22 +348,24 @@
 }
 
 [data-theme="dark"] {
-  /* Surfaces (dark — drawn) */
-  --color-bg: #161510;
-  --color-surface: #1d1c17;
-  --color-surface-elevated: #272620;
-  --color-overlay: rgba(0, 0, 0, 0.55);
+  /* Surfaces (dark — os tokens do site Radar: --paper, --card, --panel) */
+  --color-bg: #0d0d0e;
+  --color-surface: #121314;
+  --color-surface-elevated: #17181a;
+  --color-overlay: rgba(0, 0, 0, 0.6);
 
-  /* Text (dark) */
-  --color-text: #f5f4ef;
-  --color-text-muted: #8e8b7f;
-  --color-text-subtle: #605e54;
+  /* Text (dark — --ink, --ink-soft, --ink-faint) */
+  --color-text: #f2f2f1;
+  --color-text-muted: #a8aaaf;
+  --color-text-subtle: #74767b;
 
-  /* Borders (dark) */
-  --color-border: #33312a;
-  --color-border-strong: #444239;
+  /* Borders (dark — --line, --m1) */
+  --color-border: #26272a;
+  --color-border-strong: #33353a;
 
-  /* Accent stays same hex stops; default shifts up for dark contrast */
+  /* Accent: mesmos stops; no escuro o botão é CLARO (grau 50), como o `.btn`
+     do site, que pinta `var(--ink)` sobre `var(--paper)`. O texto do botão é
+     o `--on-ink` do site. */
   --color-accent-50: #f4f5f8;
   --color-accent-100: #dedfe6;
   --color-accent-200: #b5b7c3;
@@ -371,25 +377,28 @@
   --color-accent-800: #12131f;
   --color-accent-900: #15161f;
   --color-accent-950: #1b1c22;
-  --color-accent: var(--color-accent-300);
-  --color-accent-fg: #161510;
-  --color-accent-soft: rgba(129, 131, 150, 0.16);
-  --color-accent-hover: var(--color-accent-200);
+  --color-accent: var(--color-accent-50);
+  --color-accent-fg: #0a0a0a;
+  --color-accent-soft: rgba(244, 245, 248, 0.1);
+  --color-accent-hover: var(--color-accent-100);
 
-  /* Neutrals — greige (11 stops, dark) */
-  --color-neutral-50: #f5f4ef;
-  --color-neutral-100: #e6e4dc;
-  --color-neutral-200: #bbb8ac;
-  --color-neutral-300: #8e8b7f;
-  --color-neutral-400: #605e54;
-  --color-neutral-500: #444239;
-  --color-neutral-600: #33312a;
-  --color-neutral-700: #272620;
-  --color-neutral-800: #1d1c17;
-  --color-neutral-900: #161510;
-  --color-neutral-950: #0c0b08;
+  /* Neutrals — cinza frio do site (11 stops, dark): --m4..--m0 e as
+     superfícies, em ordem de luminosidade */
+  --color-neutral-50: #f2f2f1;
+  --color-neutral-100: #e6e6e8;
+  --color-neutral-200: #a8aaaf;
+  --color-neutral-300: #9a9ca2;
+  --color-neutral-400: #74767b;
+  --color-neutral-500: #5e6067;
+  --color-neutral-600: #33353a;
+  --color-neutral-700: #26272a;
+  --color-neutral-800: #1b1c1e;
+  --color-neutral-900: #121314;
+  --color-neutral-950: #0d0d0e;
 
-  /* States (dark) */
+  /* States (dark) — as do upstream: `--color-success` é o stop 400 da rampa
+     Sage, e `branding-contraste.test.ts` usa essa coincidência como controle
+     positivo da reconciliação de semânticas */
   --color-success: #82a077;
   --color-success-bg: rgba(130, 160, 119, 0.18);
   --color-success-fg: #a4ba9a;
@@ -430,7 +439,7 @@
   --input: var(--color-border);
   --ring: var(--color-accent-300);
   /* ---- Agenda · cor de pessoa (tema escuro) ----------------------------
-   * Mais claras e menos saturadas que as do claro: sobre `#161510` a versão
+   * Mais claras e menos saturadas que as do claro: sobre `#0d0d0e` a versão
    * escura de cada matiz sumiria. Mesma ordem, mesmos nomes.
    */
   --agenda-pessoa-1: #f89080;
@@ -797,10 +806,15 @@
       "Helvetica Neue",
       Arial,
       sans-serif;
+    /* O `body` do site Radar, literal: 15px, 1.5, peso 400, antialiased.
+       Vale para o texto que não leva classe de tamanho; os utilitários
+       `text-*` são em rem e seguem os 16px do `html`. */
+    font-size: 15px;
+    line-height: 1.5;
+    font-weight: 400;
     font-feature-settings:
       "rlig" 1,
       "calt" 1;
-    letter-spacing: -0.01em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -820,9 +834,11 @@
     background-color: var(--color-accent-200);
     color: var(--color-accent-950);
   }
+  /* No escuro o grau 700 (#0f101f) some sobre o fundo #0d0d0e: a seleção
+     é clara, como o botão. */
   [data-theme="dark"] ::selection {
-    background-color: var(--color-accent-700);
-    color: var(--color-accent-50);
+    background-color: var(--color-accent-100);
+    color: var(--color-accent-950);
   }
 
   /* Focus ring: accent 500 (claro) / 300 (escuro), 2px with offset */
