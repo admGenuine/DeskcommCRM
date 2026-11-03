@@ -3095,7 +3095,7 @@ de contrato; pareamento real por código ainda requer confirmação no celular.
 
 | Caso | Prioridade | Estado |
 | --- | --- | --- |
-| A porta tem dois botões; cada etapa abre com o bloco que a nomeia e o seletor 1 · 2 marca a atual | `[P1]` | `tests/e2e/prospeccao-em-etapas.spec.ts` (parte 6 do CI, tema escuro, capturas em `evidence/prospeccao-em-etapas/` saem no artefato `evidencia-parte-6`); `tests/unit/prospeccao-em-etapas.test.tsx` |
+| A porta tem dois botões; cada etapa abre com o bloco que a nomeia e o seletor 1 · 2 marca a atual | `[P1]` | `tests/e2e/prospeccao-em-etapas.spec.ts` (parte 7 do CI, aberta neste PR porque a parte 6 passou a ser cortada pelo relógio; tema escuro, capturas em `evidence/prospeccao-em-etapas/` saem no artefato `evidencia-parte-7`); `tests/unit/prospeccao-em-etapas.test.tsx` |
 | Etapa 2 sem Preparar a campanha; a tabela sem Informações e Sinais do site; o botão Abrir de cada campanha leva à rota própria; o filtro agrupa por situação | `[P1]` | `tests/unit/prospeccao-em-etapas.test.tsx` |
 | Campanha aberta, aba Preparar: cartão de preparar, as empresas com bairro lido do endereço, contatos, mapa de Curitiba e o botão de abordar chamando a mesma seleção da fila | `[P1]` | `tests/unit/prospeccao-em-etapas.test.tsx`; o leitor de bairro em `lib/prospecting/mapa/bairro.test.ts` (formato do Maps e do Mercado, apelidos, nome oficial) |
 | Campanha aberta, aba Abordagem: a conversa de configuração do agente inteira, inclusive a troca de campanha com texto não salvo (trocar é trocar de rota) | `[P1]` | `tests/unit/prospecting-agent-dialog.test.tsx` |
