@@ -184,7 +184,7 @@ jobs:
       # uma rodada por parte.
       fail-fast: false
       matrix:
-        parte: [1, 2, 3, 4, 5, 6]
+        parte: [1, 2, 3, 4, 5, 6, 7]
     # ─────────────────────────────────────────────────────────────────────────
     # A COBERTURA DEIXA DE SER PROSA DIGITADA À MÃO.
     #
@@ -1256,8 +1256,6 @@ jobs:
       # parte o sobe) e devolve as chaves da instalação no `finally`.
       # PREVISÃO, não medida: ~1,5 min de caso.
       SPECS_PARTE_6: >-
-        agenda-google-meet.spec.ts
-        agenda-presenca-recuperacao.spec.ts
         celular-cabe-na-tela.spec.ts
         cobranca-desligada.spec.ts
         cobranca-link-pelo-dono.spec.ts
@@ -1265,18 +1263,64 @@ jobs:
         filtro-por-marcador-pela-tela.spec.ts
         fonte-de-captacao-assina-os-envios.spec.ts
         inbox-busca-e-filtros-dizem-a-verdade.spec.ts
-        mapas-em-provedores.spec.ts
         modulo-de-dados-na-ficha-do-contato.spec.ts
-        painel-de-configuracao-da-instalacao.spec.ts
-        protecao-de-envio-nao-congela-o-padrao.spec.ts
-        prova-painel-provedores.spec.ts
         qa-l12-inbox.spec.ts
-        recursos-opcionais.spec.ts
-        redes-sociais-volta-nao-desloga.spec.ts
         skills-versao-nova-do-catalogo.spec.ts
-        sons-dos-avisos.spec.ts
         suspensao-administrativa.spec.ts
         integracao-dados-fontes-liberadas.spec.ts
+
+      # ─── PARTE 7 — nasceu em 2026-11-03 (fork Genuine), e o relógio a pediu ───
+      #
+      # Medido em duas rodadas do PR #23 do fork (mesmo código de e2e nas duas,
+      # só o runner mudou), relógio do JOB contra o orçamento de 1440s e o teto
+      # de 1800s, pelas anotações do passo "Publicar o relógio da parte":
+      #
+      #     run 41690516815 (verde): parte 6 → 1505s (preparo 333s, suíte 1170s)
+      #                              parte 1 → 1506s · parte 2 → 1594s · parte 5 → 1574s
+      #     run 41699475920 (corte): parte 6 → preparo 410s, folga 1270s, suíte
+      #                              CORTADA aos 1270s com ZERO caso vermelho
+      #                              ("a parte cresceu"); parte 2 → 1612s
+      #
+      # Quatro das cinco comuns já passavam do orçamento com tudo verde, e a
+      # parte 6 passou a caber ou não caber conforme a velocidade do runner. A
+      # regra do passo de corte é "rebalanceie as listas ou reparta em mais uma
+      # parte"; redistribuir não cabia (as outras também estão cheias), então
+      # esta parte nasceu pelo mesmo caminho da 6.
+      #
+      # O que veio para cá é METADE da parte 6, escolhida pela documentação dela
+      # mesma: as specs que em 28/09 vieram das partes 1, 2 e 3 (cada uma semeia
+      # o próprio dado ou só lê os seeds de passo), com o tempo medido então:
+      #
+      #     prova-painel-provedores 212 · agenda-presenca-recuperacao 140 ·
+      #     sons-dos-avisos 76 · agenda-google-meet 57 · protecao-de-envio-… 45 ·
+      #     recursos-opcionais 35 · painel-de-configuracao-… 17 ·
+      #     redes-sociais-volta-… 4   (= 586s)
+      #
+      # mais `mapas-em-provedores` (dirige o mesmo painel de provedores; não
+      # medida) e `prospeccao-em-etapas` (do fork; ~1,5 min de previsão).
+      # Ficaram na 6 as famílias que andam juntas: a do Inbox
+      # (`inbox-busca-e-filtros-…`, `filtro-por-marcador-…`, `qa-l12-inbox`) e a
+      # da cobrança do revendedor (`cobranca-*`, `suspensao-administrativa`, que
+      # dividem o card e o dublê da porta 3995), com `skills-versao-nova-…`,
+      # `celular-cabe-na-tela`, `fonte-de-captacao-…`, `modulo-de-dados-…` e
+      # `integracao-dados-fontes-liberadas`.
+      #
+      # PREVISÃO (é previsão; o e2e deste PR mede): suíte de ~650s a ~750s em
+      # cada uma das duas, isto é, jobs perto de ~1100s, uns 5 min abaixo do
+      # orçamento. As partes 1, 2 e 5 seguem acima do orçamento como já estavam
+      # na base: este PR não as toca, e o aviso delas continua aparecendo.
+      #
+      # NÃO MEDIDO até aquele run: se as 10 specs passam na vizinhança nova.
+      SPECS_PARTE_7: >-
+        prova-painel-provedores.spec.ts
+        mapas-em-provedores.spec.ts
+        sons-dos-avisos.spec.ts
+        agenda-presenca-recuperacao.spec.ts
+        agenda-google-meet.spec.ts
+        protecao-de-envio-nao-congela-o-padrao.spec.ts
+        recursos-opcionais.spec.ts
+        painel-de-configuracao-da-instalacao.spec.ts
+        redes-sociais-volta-nao-desloga.spec.ts
         prospeccao-em-etapas.spec.ts
 
       # ─── FORA_DO_CI — as que ficaram fora, e o motivo de cada uma ───
@@ -2091,6 +2135,7 @@ jobs:
             4) LISTA="$SPECS_PARTE_4" ;;
             5) LISTA="$SPECS_PARTE_5" ;;
             6) LISTA="$SPECS_PARTE_6" ;;
+            7) LISTA="$SPECS_PARTE_7" ;;
             *) echo "::error::parte ${{ matrix.parte }} sem lista"; exit 1 ;;
           esac
           # Falha alto se a variável vier vazia: sem isto, um typo no nome faria
@@ -2416,7 +2461,7 @@ jobs:
                       dentro { exit }
                     ' .github/workflows/e2e.yml | grep -oE "[a-z0-9-]+\.spec\.ts" | sort -u; }
           NO_DISCO=$(ls tests/e2e/*.spec.ts | wc -l | tr -d " ")
-          RODOU=$( { bloco SPECS_PARTE_1; bloco SPECS_PARTE_2; bloco SPECS_PARTE_3; bloco SPECS_PARTE_4; bloco SPECS_PARTE_5; bloco SPECS_PARTE_6; } | sort -u | wc -l | tr -d " ")
+          RODOU=$( { bloco SPECS_PARTE_1; bloco SPECS_PARTE_2; bloco SPECS_PARTE_3; bloco SPECS_PARTE_4; bloco SPECS_PARTE_5; bloco SPECS_PARTE_6; bloco SPECS_PARTE_7; } | sort -u | wc -l | tr -d " ")
           FORA_LISTA=$(bloco FORA_DO_CI)
           FORA=$(echo "$FORA_LISTA" | grep -c . || true)
           # E o recorte passa a ter CONTROLE, não só um piso.

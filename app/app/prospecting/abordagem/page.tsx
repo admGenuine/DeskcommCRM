@@ -1,17 +1,22 @@
-import type { Metadata } from "next";
-import { Suspense } from "react";
-import { ProspectingClient } from "../_client";
+import { redirect } from "next/navigation";
+import { hrefDaCampanha, PARAMETRO_DA_CAMPANHA, ROTA_DA_ETAPA } from "../_etapas";
 import { exigirAdminDaProspeccao } from "../_porta";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Abordagem · Etapa 3" };
 
-/** Etapa 3: preparar a abordagem da campanha escolhida e iniciar as abordagens com IA. */
-export default async function AbordagemPage() {
+/**
+ * A antiga etapa 3 (fork, 2026-11-02 a 2026-11-03). A abordagem passou a ser a
+ * segunda aba da campanha aberta; este endereço só existe para os links salvos
+ * não morrerem: com `?campanha=`, abre a aba Abordagem daquela campanha; sem,
+ * abre a etapa 2, onde as campanhas estão.
+ */
+export default async function AbordagemPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   await exigirAdminDaProspeccao();
-  return (
-    <Suspense fallback={null}>
-      <ProspectingClient etapa="abordagem" />
-    </Suspense>
-  );
+  const valor = (await searchParams)[PARAMETRO_DA_CAMPANHA];
+  const campanhaId = Array.isArray(valor) ? valor[0] : valor;
+  redirect(campanhaId ? hrefDaCampanha(campanhaId, "abordagem") : ROTA_DA_ETAPA.campanhas);
 }

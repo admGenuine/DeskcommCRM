@@ -6,11 +6,12 @@ import "@testing-library/jest-dom/vitest";
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn() }));
 vi.mock("@/lib/api/client", () => ({ apiClient: api }));
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (text: string) => text }));
-// A Prospecção virou três telas (fork, `_etapas.ts`); a conversa para configurar o agente
-// mora na etapa 3, e a tela lê a campanha escolhida da URL.
+// A Prospecção virou duas etapas e a campanha aberta (fork, `_etapas.ts`); a conversa para
+// configurar o agente mora na aba Abordagem da campanha aberta, cuja campanha é o caminho.
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/app/prospecting/abordagem",
-  useSearchParams: () => new URLSearchParams(""),
+  usePathname: () => "/app/prospecting/campanhas/11111111-1111-4111-8111-111111111111",
+  useSearchParams: () => new URLSearchParams("aba=abordagem"),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
 
 import { ProspectingClient } from "@/app/app/prospecting/_client";
@@ -106,7 +107,7 @@ let createReply: typeof api.post;
 let prepareReply: typeof api.post;
 let testReply: typeof api.post;
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
-/** Na etapa 3 a campanha se troca pelo seletor do cabeçalho (a lista mora na etapa 2). */
+/** Na campanha aberta a campanha se troca pelo seletor do cabeçalho (a lista mora na etapa 2). */
 function trocarCampanha(id: string) {
   fireEvent.change(screen.getByLabelText("Campanha"), { target: { value: id } });
 }
@@ -114,7 +115,7 @@ function openPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <ProspectingClient etapa="abordagem" />
+      <ProspectingClient etapa="campanha" campanhaId={CAMPAIGN} aba="abordagem" />
     </QueryClientProvider>,
   );
 }
