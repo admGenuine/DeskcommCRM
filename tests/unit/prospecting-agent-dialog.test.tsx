@@ -6,6 +6,12 @@ import "@testing-library/jest-dom/vitest";
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn() }));
 vi.mock("@/lib/api/client", () => ({ apiClient: api }));
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (text: string) => text }));
+// A Prospecção virou três telas (fork, `_etapas.ts`); a conversa para configurar o agente
+// mora na etapa 3, e a tela lê a campanha escolhida da URL.
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/app/prospecting/abordagem",
+  useSearchParams: () => new URLSearchParams(""),
+}));
 
 import { ProspectingClient } from "@/app/app/prospecting/_client";
 import { ApiError } from "@/lib/api/types";
@@ -100,11 +106,15 @@ let createReply: typeof api.post;
 let prepareReply: typeof api.post;
 let testReply: typeof api.post;
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
+/** Na etapa 3 a campanha se troca pelo seletor do cabeçalho (a lista mora na etapa 2). */
+function trocarCampanha(id: string) {
+  fireEvent.change(screen.getByLabelText("Campanha"), { target: { value: id } });
+}
 function openPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <ProspectingClient />
+      <ProspectingClient etapa="abordagem" />
     </QueryClientProvider>,
   );
 }
@@ -341,14 +351,14 @@ describe("conversa principal para configurar o agente", () => {
     fireEvent.change(screen.getByLabelText("Mensagem para configurar o agente"), {
       target: { value: "Oferta só para clínicas" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Escritórios de contabilidade/ }));
+    trocarCampanha(OTHER_CAMPAIGN);
     await builder();
     expect(screen.getByLabelText("Mensagem para configurar o agente")).toHaveValue("");
     await waitFor(() => expect(current().session.input).toBe("Oferta só para clínicas"));
     fireEvent.change(screen.getByLabelText("Mensagem para configurar o agente"), {
       target: { value: "Oferta para contadores" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Clínicas de estética/ }));
+    trocarCampanha(CAMPAIGN);
     await builder();
     expect(screen.getByLabelText("Mensagem para configurar o agente")).toHaveValue(
       "Oferta só para clínicas",
@@ -620,13 +630,13 @@ describe("alternativa manual e campanha existente", () => {
     );
     const offer = () => screen.getByLabelText("O que a IA deve oferecer e como iniciar");
     fireEvent.change(offer(), { target: { value: "Oferecer avaliação para clínicas" } });
-    fireEvent.click(screen.getByRole("button", { name: /Escritórios de contabilidade/ }));
+    trocarCampanha(OTHER_CAMPAIGN);
     await builder();
     fireEvent.click(
       screen.getByRole("button", { name: "Usar agente existente / configurar manualmente" }),
     );
     expect(offer()).toHaveValue("");
-    fireEvent.click(screen.getByRole("button", { name: /Clínicas de estética/ }));
+    trocarCampanha(CAMPAIGN);
     expect(offer()).toHaveValue("Oferecer avaliação para clínicas");
     fireEvent.click(screen.getByRole("button", { name: "Configurar por conversa" }));
     await say("Complete o agente com essa oferta.");

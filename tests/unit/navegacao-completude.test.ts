@@ -39,7 +39,8 @@ const NAV_ALLOWLIST: Record<string, string> = {
     "sub-fluxo de criar campanha, alcançado pelo botão dentro da lista de Campanhas",
   "/app/campaigns/settings":
     "padrões de campanha da organização, alcançados pelo botão dentro da lista de Campanhas — é ajuste que se faz uma vez, não tela de uso diário",
-  "/app/settings/tenant/whatsapp": "redirect legado para /app/connections; mantido por links salvos",
+  "/app/settings/tenant/whatsapp":
+    "redirect legado para /app/connections; mantido por links salvos",
   "/app/settings/canal-oficial":
     "redirect para /app/connections?aba=oficial desde o PR #105 — conectar canal passou a ter um lugar só. Conexões é a porta; a aba é navegação interna dela",
   "/app/settings/templates":
@@ -48,6 +49,12 @@ const NAV_ALLOWLIST: Record<string, string> = {
     "porta é o rodapé de versão (VersionFooter), que aparece justamente quando há versão nova — melhor que um card fixo. Além disso é só do dono do servidor (is_platform_admin), papel que o registro não modela",
   "/app/proposals/novo":
     "sub-fluxo de criação de proposta, alcançado pelo botão 'Nova proposta' em /app/proposals",
+  "/app/prospecting/empresas":
+    "etapa 1 da Prospecção, alcançada pelo botão 'Abrir prospecção' da porta /app/prospecting (fork, app/app/prospecting/_etapas.ts); o menu lateral tem um item só, a porta",
+  "/app/prospecting/campanhas":
+    "etapa 2 da Prospecção, alcançada pelo botão 'Abrir campanhas' da porta /app/prospecting e pelo seletor 1 · 2 · 3 de toda etapa",
+  "/app/prospecting/abordagem":
+    "etapa 3 da Prospecção, alcançada pelo botão 'Abrir abordagem' da porta /app/prospecting e pelo botão 'Preparar a abordagem' da etapa 2",
 };
 
 /** Deriva as rotas estáticas a partir dos arquivos de página que existem. */
@@ -107,9 +114,10 @@ describe("completude da navegação", () => {
 
   it("a allowlist não guarda rota que já morreu", () => {
     const obsoletas = Object.keys(NAV_ALLOWLIST).filter((r) => !ROTAS.includes(r));
-    expect(obsoletas, `Allowlist cita rota que não existe mais:\n  ${obsoletas.join("\n  ")}`).toEqual(
-      [],
-    );
+    expect(
+      obsoletas,
+      `Allowlist cita rota que não existe mais:\n  ${obsoletas.join("\n  ")}`,
+    ).toEqual([]);
   });
 
   it("toda entrada da allowlist explica o porquê", () => {

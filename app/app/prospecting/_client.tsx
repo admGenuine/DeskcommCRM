@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { randomId } from "@/lib/random-id";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -25,8 +26,10 @@ import { FicarComAsMelhores, NotaDaEmpresa } from "./_score";
 import { DecisorDaEmpresa, UsoDeSociosCard } from "./_decisor";
 import type { Decisor } from "@/lib/prospecting/mercado/socios";
 import { pontuar } from "@/lib/prospecting/score";
-import { FILTROS, passaNoFiltro, type Filtro } from "./_filtro";
+import { passaNoFiltro, type Filtro } from "./_filtro";
 import { MercadoForm } from "./_mercado";
+import { PARAMETRO_DA_CAMPANHA, hrefDaEtapa, type Etapa } from "./_etapas";
+import { CabecalhoDaEtapa } from "./_etapas-ui";
 import type { PerfilAprendido } from "@/lib/prospecting/aprendizado";
 import type { ProspectingAgentSetupInput } from "@/lib/prospecting/agent-setup-schema";
 
@@ -111,7 +114,20 @@ const emptyConfig: CampaignConfig = {
   // Campanha nova nasce no modo recomendado; a configuração já gravada manda no que existe.
   funnel_entry: "on_send",
 };
-export function ProspectingClient() {
+/**
+ * A tela de uma etapa da Prospecção (`_etapas.ts`). A lógica é uma só para as
+ * três; `etapa` decide o que esta rota mostra:
+ *
+ *   - `empresas`  : encontrar empresas, perfil aprendido, decisor pelo quadro de
+ *                   sócios e os resultados da busca (encontrados / aprovados / recusados);
+ *   - `campanhas` : a lista de campanhas, preparar a campanha (referência, ritmo,
+ *                   pausar e retomar) e os resultados da abordagem (fila / responderam /
+ *                   qualificados);
+ *   - `abordagem` : preparar a abordagem da campanha escolhida e iniciá-la.
+ *
+ * A campanha escolhida viaja na URL (`?campanha=`), para a troca de etapa não a perder.
+ */
+export function ProspectingClient({ etapa }: { readonly etapa: Etapa }) {
   const t = useT();
   const query = useQuery({
     queryKey: ["prospecting"],
@@ -125,7 +141,24 @@ export function ProspectingClient() {
   const [notice, setNotice] = useState<string | null>(null);
   const [key, setKey] = useState("");
   const [settings, setSettings] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
+  const busca = useSearchParams();
+  const caminho = usePathname();
+  const [selected, setSelected] = useState<string | null>(() => busca.get(PARAMETRO_DA_CAMPANHA));
+  /**
+   * Escolher a campanha grava na URL, para a etapa seguinte abrir na mesma.
+   * `history.replaceState` e não `router.replace`, pela razão medida na Agenda
+   * (#1629): a History API troca a query sem pedir um novo Server Component, e
+   * trocar de campanha não é navegação nova (com `push`, o "voltar" acumularia
+   * um passo por clique).
+   */
+  function escolherCampanha(id: string | null) {
+    setSelected(id);
+    const parametros = new URLSearchParams(busca.toString());
+    if (id) parametros.set(PARAMETRO_DA_CAMPANHA, id);
+    else parametros.delete(PARAMETRO_DA_CAMPANHA);
+    const query = parametros.toString();
+    window.history.replaceState(null, "", query ? `${caminho}?${query}` : caminho);
+  }
   const [filtro, setFiltro] = useState<{ tipo: Filtro; motivo?: string }>({ tipo: "todos" });
   const resultados = useRef<HTMLDivElement>(null);
   const [niche, setNiche] = useState("");
@@ -388,6 +421,13 @@ export function ProspectingClient() {
     responderam: t("Responderam"),
     qualificados: t("Qualificados"),
   };
+  // Cada etapa conta o que lhe diz respeito: a 1 o que a busca achou, a 2 o que a
+  // abordagem fez. Os seis filtros continuam existindo em `_filtro.ts`.
+  const filtrosDaEtapa: readonly Filtro[] =
+    etapa === "campanhas"
+      ? ["fila", "responderam", "qualificados"]
+      : ["todos", "aprovados", "recusados"];
+  const campanhaNaUrl = campaign?.id ?? null;
   const filtrar = (tipo: Filtro, motivo?: string) => {
     setFiltro({ tipo, motivo });
     resultados.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -399,18 +439,38 @@ export function ProspectingClient() {
   );
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 md:p-8">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-medium tracking-widest text-muted-foreground uppercase">CRM</p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight">{t("Prospecção")}</h1>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            {t("Encontre empresas, aborde aos poucos e acompanhe quem avança na conversa.")}
-          </p>
-        </div>
-        <Button variant="outline" onClick={() => setSettings((s) => !s)}>
-          {t("Configurar busca")}
-        </Button>
-      </header>
+      <CabecalhoDaEtapa
+        etapa={etapa}
+        campanhaId={campanhaNaUrl}
+        acao={
+          etapa === "empresas" ? (
+            <Button variant="outline" onClick={() => setSettings((s) => !s)}>
+              {t("Configurar busca")}
+            </Button>
+          ) : etapa === "abordagem" && data && data.campaigns.length > 0 ? (
+            // A etapa 3 não tem a lista de campanhas (ela é da etapa 2); trocar de
+            // campanha aqui é um seletor, para a conversa de configuração de cada
+            // uma continuar na mesma tela, com o texto ainda não salvo preservado.
+            <div className="flex items-center gap-2">
+              <Label htmlFor="prospecting-campanha" className="text-sm text-muted-foreground">
+                {t("Campanha")}
+              </Label>
+              <select
+                id="prospecting-campanha"
+                className={`${selectClass} w-auto max-w-72`}
+                value={campaign?.id ?? ""}
+                onChange={(e) => escolherCampanha(e.target.value || null)}
+              >
+                {data.campaigns.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null
+        }
+      />
       {(error || query.error) && (
         <div
           role="alert"
@@ -428,287 +488,391 @@ export function ProspectingClient() {
         </div>
       )}
       {!data && !query.error && <p role="status">{t("Carregando campanhas…")}</p>}
-      {(settings || data?.configured === false) && (
-        <Card className="p-5">
-          <form
-            className="flex flex-col gap-3 sm:flex-row sm:items-end"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (
-                await perform({ action: "configure", api_key: key }, t("Chave de busca salva."))
-              ) {
-                setKey("");
-                setSettings(false);
-              }
-            }}
-          >
-            <div className="flex-1">
-              <Label htmlFor="prospecting-key">{t("Chave da Apify")}</Label>
-              <Input
-                id="prospecting-key"
-                type="password"
-                autoComplete="off"
-                value={key}
-                onChange={(e) => setKey(e.target.value)}
-                required
-                minLength={10}
-                className="mt-2"
-              />
-              <p className="mt-2 text-xs text-muted-foreground">
-                {t("A chave fica cifrada no servidor. Cada busca tem seu próprio limite de gasto.")}
-              </p>
-            </div>
-            <Button disabled={busy || !key} type="submit">
-              {t("Salvar chave")}
-            </Button>
-          </form>
-        </Card>
-      )}
-      <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-        <aside className="flex flex-col gap-5">
-          <Card className="p-5">
-            <h2 className="text-lg font-semibold">{t("1. Encontrar empresas")}</h2>
-            <div
-              role="group"
-              aria-label={t("De onde vêm as empresas")}
-              className="mt-3 grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
-            >
-              <Button
-                type="button"
-                size="sm"
-                variant={fonte === "maps" ? "default" : "ghost"}
-                aria-pressed={fonte === "maps"}
-                onClick={() => setFonte("maps")}
-              >
-                {t("Google Maps")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={fonte === "mercado" ? "default" : "ghost"}
-                aria-pressed={fonte === "mercado"}
-                onClick={() => setFonte("mercado")}
-              >
-                {t("Mercado (Receita)")}
-              </Button>
-            </div>
-            {fonte === "mercado" ? (
-              <MercadoForm
-                busy={busy}
-                onCriar={async (body) => {
-                  const criada = await perform(
-                    { action: "market_campaign", ...body },
-                    t(
-                      "Campanha criada com as empresas do mercado. Revise a lista e prepare a abordagem.",
-                    ),
-                  );
-                  if (criada) setSelected(null);
-                  return criada;
-                }}
-              />
-            ) : (
+      {etapa === "empresas" && (
+        <>
+          {(settings || data?.configured === false) && (
+            <Card className="p-5">
               <form
-                className="mt-4 space-y-4"
+                className="flex flex-col gap-3 sm:flex-row sm:items-end"
                 onSubmit={async (e) => {
                   e.preventDefault();
-                  const fingerprint = JSON.stringify([niche, location, limit, budget, enrich]);
-                  if (searchAttempt.current?.fingerprint !== fingerprint)
-                    searchAttempt.current = { fingerprint, id: randomId() };
-                  const success = await perform(
-                    {
-                      action: "search",
-                      request_id: searchAttempt.current.id,
-                      search: {
-                        name: `${niche} · ${location}`.slice(0, 120),
-                        niche,
-                        location,
-                        limit,
-                        budget_usd: budget,
-                        enrich,
-                      },
-                    },
-                    t("Solicitação registrada. Acompanhe o estado da busca nesta tela."),
-                  );
-                  if (success) {
-                    setSelected(null);
-                    searchAttempt.current = null;
+                  if (
+                    await perform({ action: "configure", api_key: key }, t("Chave de busca salva."))
+                  ) {
+                    setKey("");
+                    setSettings(false);
                   }
                 }}
               >
-                <div>
-                  <Label htmlFor="prospecting-niche">{t("Público ou segmento")}</Label>
+                <div className="flex-1">
+                  <Label htmlFor="prospecting-key">{t("Chave da Apify")}</Label>
                   <Input
-                    id="prospecting-niche"
-                    value={niche}
-                    onChange={(e) => setNiche(e.target.value)}
-                    placeholder={t("Ex.: clínicas de estética")}
-                    minLength={2}
-                    maxLength={120}
+                    id="prospecting-key"
+                    type="password"
+                    autoComplete="off"
+                    value={key}
+                    onChange={(e) => setKey(e.target.value)}
                     required
-                    className="mt-1"
+                    minLength={10}
+                    className="mt-2"
                   />
-                </div>
-                <div>
-                  <Label htmlFor="prospecting-location">{t("Cidade ou região")}</Label>
-                  <Input
-                    id="prospecting-location"
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                    placeholder={t("Ex.: São Paulo, SP")}
-                    minLength={2}
-                    maxLength={160}
-                    required
-                    className="mt-1"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label htmlFor="prospecting-limit">{t("Até quantas empresas")}</Label>
-                    <Input
-                      id="prospecting-limit"
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={limit}
-                      onChange={(e) => setLimit(Number(e.target.value))}
-                      required
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="prospecting-budget">{t("Teto da busca (US$)")}</Label>
-                    <Input
-                      id="prospecting-budget"
-                      type="number"
-                      min={0.5}
-                      max={10}
-                      step={0.5}
-                      value={budget}
-                      onChange={(e) => setBudget(Number(e.target.value))}
-                      required
-                      className="mt-1"
-                    />
-                  </div>
-                </div>
-                <label className="flex items-start gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={enrich}
-                    onChange={(e) => setEnrich(e.target.checked)}
-                    className="mt-1"
-                  />
-                  {t("Enriquecer com e-mails comerciais e redes encontradas no site")}
-                </label>
-                {conhecidosDaBusca > 0 && (
-                  <p role="status" className="rounded-md border bg-muted/30 p-3 text-xs">
-                    {conhecidosDaBusca}{" "}
-                    {t("empresas desta busca já estão nas suas campanhas e não vão se repetir.")}{" "}
-                    {t("Para trazer novas, a busca vai olhar até")}{" "}
-                    {alcanceDaBusca(limit || 0, conhecidosDaBusca)}{" "}
-                    {t("lugares no Maps, dentro do teto de gasto.")}
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {t(
+                      "A chave fica cifrada no servidor. Cada busca tem seu próprio limite de gasto.",
+                    )}
                   </p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  {t(
-                    "A pesquisa usa seu saldo da Apify. A quantidade encontrada pode ser menor que o limite. Nenhuma abordagem começa nesta etapa.",
-                  )}
-                </p>
-                <Button className="w-full" type="submit" disabled={busy || !data?.configured}>
-                  {busy ? t("Aguarde…") : t("Buscar empresas")}
+                </div>
+                <Button disabled={busy || !key} type="submit">
+                  {t("Salvar chave")}
                 </Button>
               </form>
-            )}
-          </Card>
-          <section>
-            <h2 className="mb-3 text-sm font-semibold">{t("Suas campanhas")}</h2>
-            <div className="space-y-2">
-              {data?.campaigns.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => {
-                    setSelected(c.id);
-                    setFiltro({ tipo: "todos" });
-                    setNotice(null);
-                    // A confirmação de exclusão vale para UMA campanha: ao trocar, ela some.
-                    setConfirmandoExclusao(false);
-                    setMostrarDesmarcadas(false);
-                  }}
-                  className={`w-full rounded-lg border p-3 text-left ${campaign?.id === c.id ? "border-primary bg-primary/5" : "bg-card"}`}
-                >
-                  <span className="block text-sm font-medium">
-                    {c.name}
-                    {c.referencia_em && (
-                      <span className="ml-2 text-xs font-normal text-muted-foreground">
-                        {t("Referência")}
-                      </span>
-                    )}
-                  </span>
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    {t(labels[c.status] ?? c.status)} · {c.result_count} {t("empresas")}
-                    {recusadasPorCampanha[c.id]
-                      ? ` · ${recusadasPorCampanha[c.id]} ${recusadasPorCampanha[c.id] === 1 ? t("recusada") : t("recusadas")}`
-                      : ""}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </section>
-          <AprendizadoCard perfil={data?.aprendizado} />
-          <UsoDeSociosCard
-            estado={data?.socios}
-            busy={busy}
-            onSalvar={(pedido) =>
-              perform(
-                { action: "socios_config", ...pedido },
-                pedido.ativo
-                  ? t("Quadro de sócios ligado. O decisor aparece em cada empresa com CNPJ.")
-                  : t("Quadro de sócios desligado. Nenhum sócio é mostrado."),
-              )
-            }
-          />
-        </aside>
-        <div className="min-w-0 space-y-5">
-          {!campaign && (
-            <Card className="flex min-h-80 flex-col items-center justify-center gap-3 p-8 text-center">
-              <h2 className="text-xl font-semibold">{t("Sua próxima conversa começa aqui")}</h2>
-              <p className="max-w-md text-sm text-muted-foreground">
-                {t(
-                  "Escolha um segmento e uma região. Depois da pesquisa, defina como a IA deve abordar e o que precisa confirmar para qualificar.",
-                )}
-              </p>
             </Card>
           )}
-          {campaign && (
-            <>
+          <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+            <aside className="flex flex-col gap-5">
               <Card className="p-5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold">{t("Encontrar empresas")}</h2>
+                <div
+                  role="group"
+                  aria-label={t("De onde vêm as empresas")}
+                  className="mt-3 grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
+                >
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={fonte === "maps" ? "default" : "ghost"}
+                    aria-pressed={fonte === "maps"}
+                    onClick={() => setFonte("maps")}
+                  >
+                    {t("Google Maps")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={fonte === "mercado" ? "default" : "ghost"}
+                    aria-pressed={fonte === "mercado"}
+                    onClick={() => setFonte("mercado")}
+                  >
+                    {t("Mercado (Receita)")}
+                  </Button>
+                </div>
+                {fonte === "mercado" ? (
+                  <MercadoForm
+                    busy={busy}
+                    onCriar={async (body) => {
+                      const criada = await perform(
+                        { action: "market_campaign", ...body },
+                        t(
+                          "Campanha criada com as empresas do mercado. Revise a lista e prepare a abordagem.",
+                        ),
+                      );
+                      if (criada) escolherCampanha(null);
+                      return criada;
+                    }}
+                  />
+                ) : (
+                  <form
+                    className="mt-4 space-y-4"
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const fingerprint = JSON.stringify([niche, location, limit, budget, enrich]);
+                      if (searchAttempt.current?.fingerprint !== fingerprint)
+                        searchAttempt.current = { fingerprint, id: randomId() };
+                      const success = await perform(
+                        {
+                          action: "search",
+                          request_id: searchAttempt.current.id,
+                          search: {
+                            name: `${niche} · ${location}`.slice(0, 120),
+                            niche,
+                            location,
+                            limit,
+                            budget_usd: budget,
+                            enrich,
+                          },
+                        },
+                        t("Solicitação registrada. Acompanhe o estado da busca nesta tela."),
+                      );
+                      if (success) {
+                        escolherCampanha(null);
+                        searchAttempt.current = null;
+                      }
+                    }}
+                  >
+                    <div>
+                      <Label htmlFor="prospecting-niche">{t("Público ou segmento")}</Label>
+                      <Input
+                        id="prospecting-niche"
+                        value={niche}
+                        onChange={(e) => setNiche(e.target.value)}
+                        placeholder={t("Ex.: clínicas de estética")}
+                        minLength={2}
+                        maxLength={120}
+                        required
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="prospecting-location">{t("Cidade ou região")}</Label>
+                      <Input
+                        id="prospecting-location"
+                        value={location}
+                        onChange={(e) => setLocation(e.target.value)}
+                        placeholder={t("Ex.: São Paulo, SP")}
+                        minLength={2}
+                        maxLength={160}
+                        required
+                        className="mt-1"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label htmlFor="prospecting-limit">{t("Até quantas empresas")}</Label>
+                        <Input
+                          id="prospecting-limit"
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={limit}
+                          onChange={(e) => setLimit(Number(e.target.value))}
+                          required
+                          className="mt-1"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="prospecting-budget">{t("Teto da busca (US$)")}</Label>
+                        <Input
+                          id="prospecting-budget"
+                          type="number"
+                          min={0.5}
+                          max={10}
+                          step={0.5}
+                          value={budget}
+                          onChange={(e) => setBudget(Number(e.target.value))}
+                          required
+                          className="mt-1"
+                        />
+                      </div>
+                    </div>
+                    <label className="flex items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={enrich}
+                        onChange={(e) => setEnrich(e.target.checked)}
+                        className="mt-1"
+                      />
+                      {t("Enriquecer com e-mails comerciais e redes encontradas no site")}
+                    </label>
+                    {conhecidosDaBusca > 0 && (
+                      <p role="status" className="rounded-md border bg-muted/30 p-3 text-xs">
+                        {conhecidosDaBusca}{" "}
+                        {t(
+                          "empresas desta busca já estão nas suas campanhas e não vão se repetir.",
+                        )}{" "}
+                        {t("Para trazer novas, a busca vai olhar até")}{" "}
+                        {alcanceDaBusca(limit || 0, conhecidosDaBusca)}{" "}
+                        {t("lugares no Maps, dentro do teto de gasto.")}
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        "A pesquisa usa seu saldo da Apify. A quantidade encontrada pode ser menor que o limite. Nenhuma abordagem começa nesta etapa.",
+                      )}
+                    </p>
+                    <Button className="w-full" type="submit" disabled={busy || !data?.configured}>
+                      {busy ? t("Aguarde…") : t("Buscar empresas")}
+                    </Button>
+                  </form>
+                )}
+              </Card>
+              <AprendizadoCard perfil={data?.aprendizado} />
+              <UsoDeSociosCard
+                estado={data?.socios}
+                busy={busy}
+                onSalvar={(pedido) =>
+                  perform(
+                    { action: "socios_config", ...pedido },
+                    pedido.ativo
+                      ? t("Quadro de sócios ligado. O decisor aparece em cada empresa com CNPJ.")
+                      : t("Quadro de sócios desligado. Nenhum sócio é mostrado."),
+                  )
+                }
+              />
+            </aside>
+            <div className="min-w-0 space-y-5">
+              {!campaign && (
+                <Card className="flex min-h-80 flex-col items-center justify-center gap-3 p-8 text-center">
+                  <h2 className="text-xl font-semibold">{t("Sua próxima conversa começa aqui")}</h2>
+                  <p className="max-w-md text-sm text-muted-foreground">
+                    {t(
+                      "Escolha um segmento e uma região. Depois da pesquisa, defina como a IA deve abordar e o que precisa confirmar para qualificar.",
+                    )}
+                  </p>
+                </Card>
+              )}
+              {campaign && (
+                <Card className="p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-xl font-semibold">{campaign.name}</h2>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {t(labels[campaign.search_status] ?? campaign.search_status)}
+                        {campaign.cost_usd !== null
+                          ? ` · US$ ${Number(campaign.cost_usd).toFixed(2)}`
+                          : ""}
+                      </p>
+                    </div>
+                    <Badge variant="outline">{t(labels[campaign.status] ?? campaign.status)}</Badge>
+                  </div>
+                  {campaign.error &&
+                    // Busca concluída e campanha ainda em rascunho: o campo traz o
+                    // AVISO da busca (já em outra campanha, busca interrompida), não
+                    // uma falha. Ver `avisoDaBusca` em lib/prospecting/store.ts.
+                    (campaign.status === "draft" && campaign.search_status === "succeeded" ? (
+                      <p className="mt-4 rounded-md border p-3 text-sm text-muted-foreground">
+                        {campaign.error}
+                      </p>
+                    ) : (
+                      <p role="alert" className="mt-4 rounded-md bg-destructive/10 p-3 text-sm">
+                        {campaign.error}
+                      </p>
+                    ))}
+                  {campaign.skipped_count > 0 && (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      {campaign.skipped_count}{" "}
+                      {t("resultados repetidos ou indisponíveis foram desconsiderados.")}
+                    </p>
+                  )}
+                  {buscaConcluida && (
+                    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                      <p className="text-sm text-muted-foreground">
+                        {t(
+                          "As aprovadas seguem para a campanha. A abordagem só começa na etapa 3.",
+                        )}
+                      </p>
+                      <Button asChild>
+                        <Link href={hrefDaEtapa("campanhas", campaign.id)}>
+                          {t("Levar aprovadas para a campanha")}
+                        </Link>
+                      </Button>
+                    </div>
+                  )}
+                </Card>
+              )}
+            </div>
+          </div>
+          {campaign && candidates.length > 0 && (
+            <Card ref={resultados} className="scroll-mt-4 overflow-hidden">
+              <div className="border-b p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-xl font-semibold">{campaign.name}</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {t(labels[campaign.search_status] ?? campaign.search_status)}
-                      {campaign.cost_usd !== null
-                        ? ` · US$ ${Number(campaign.cost_usd).toFixed(2)}`
-                        : ""}
+                    <h2 className="text-lg font-semibold">{t("Acompanhar resultados")}</h2>
+                    <p className="text-sm text-muted-foreground">
+                      {t(
+                        "Encontrado é diferente de qualificado. A qualificação depende do que for confirmado na conversa.",
+                      )}
                     </p>
                   </div>
-                  <Badge variant="outline">{t(labels[campaign.status] ?? campaign.status)}</Badge>
+                  {canSelect && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        {noRascunho
+                          ? t(
+                              "Somente as empresas marcadas entram na fila ao iniciar as abordagens.",
+                            )
+                          : t(
+                              "Com a campanha pausada, marque ou desmarque as empresas que ainda estão na fila. Quem já foi abordado não muda.",
+                            )}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={busy || elegiveis.length === 0 || allSelected}
+                        onClick={() =>
+                          setSelection(
+                            elegiveis.map((c) => c.id),
+                            true,
+                          )
+                        }
+                      >
+                        {t("Marcar todas")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={busy || noneSelected}
+                        onClick={() =>
+                          setSelection(
+                            elegiveis.map((c) => c.id),
+                            false,
+                          )
+                        }
+                      >
+                        {t("Desmarcar todas")}
+                      </Button>
+                      {desmarcadas.length > 0 && (
+                        <button
+                          type="button"
+                          className="text-xs underline"
+                          onClick={() => setMostrarDesmarcadas((v) => !v)}
+                        >
+                          {mostrarDesmarcadas
+                            ? t("Esconder desmarcadas")
+                            : `${t("Mostrar desmarcadas")} (${desmarcadas.length})`}
+                        </button>
+                      )}
+                      {descartaveis.length > 0 &&
+                        (confirmandoExclusao ? (
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs text-muted-foreground">
+                              {t(
+                                "Excluir tira essas empresas da lista. Em outra busca, elas podem aparecer de novo como novas.",
+                              )}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() => void excluirDesmarcadas()}
+                            >
+                              {t("Confirmar exclusão")}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() => setConfirmandoExclusao(false)}
+                            >
+                              {t("Cancelar")}
+                            </Button>
+                          </span>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => setConfirmandoExclusao(true)}
+                          >
+                            {`${t("Excluir desmarcadas")} (${descartaveis.length})`}
+                          </Button>
+                        ))}
+                      {naFilaPausada && !criaSoNoEnvio && (
+                        <span className="basis-full text-xs text-muted-foreground">
+                          {t(
+                            "Esta campanha já criou o contato e o negócio dessas empresas ao iniciar. Desmarcar só impede o envio: elas continuam no funil.",
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
-                {campaign.error &&
-                  // Busca concluída e campanha ainda em rascunho: o campo traz o
-                  // AVISO da busca (já em outra campanha, busca interrompida), não
-                  // uma falha. Ver `avisoDaBusca` em lib/prospecting/store.ts.
-                  (campaign.status === "draft" && campaign.search_status === "succeeded" ? (
-                    <p className="mt-4 rounded-md border p-3 text-sm text-muted-foreground">
-                      {campaign.error}
-                    </p>
-                  ) : (
-                    <p role="alert" className="mt-4 rounded-md bg-destructive/10 p-3 text-sm">
-                      {campaign.error}
-                    </p>
-                  ))}
-                <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-                  {FILTROS.map((tipo) => {
+                <div className="mt-4 grid grid-cols-3 gap-3">
+                  {filtrosDaEtapa.map((tipo) => {
                     const ativo = filtro.tipo === tipo && !filtro.motivo;
                     return (
                       <button
@@ -727,7 +891,7 @@ export function ProspectingClient() {
                     );
                   })}
                 </div>
-                {motivosDeRecusa.length > 0 && (
+                {filtrosDaEtapa.includes("recusados") && motivosDeRecusa.length > 0 && (
                   <div className="mt-4 rounded-md border p-3">
                     <p className="text-xs font-medium text-muted-foreground">
                       {t("Por que ficaram de fora")}
@@ -752,816 +916,1213 @@ export function ProspectingClient() {
                     </ul>
                   </div>
                 )}
-                {campaign.search_status === "succeeded" && (
-                  <ReferenciaDaCampanha
-                    referencia={!!campaign.referencia_em}
-                    motivo={campaign.referencia_motivo}
-                    busy={busy}
-                    onMarcar={(ativa, motivo) =>
-                      perform(
-                        { action: "reference", id: campaign.id, ativa, motivo: motivo || null },
-                        ativa
-                          ? t("Campanha marcada como referência do perfil ideal.")
-                          : t("A campanha deixou de ser referência."),
-                      )
-                    }
-                  />
-                )}
-                {campaign.skipped_count > 0 && (
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    {campaign.skipped_count}{" "}
-                    {t("resultados repetidos ou indisponíveis foram desconsiderados.")}
-                  </p>
-                )}
-                {campaign.config && (
-                  <>
-                    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-                      <p className="text-sm text-muted-foreground">
-                        {t("Ritmo:")} {campaign.config.daily_limit}{" "}
-                        {t("abordagens em 24 horas, com pelo menos")}{" "}
-                        {campaign.config.interval_minutes} {t("minutos entre elas.")}
-                      </p>
-                      {campaign.status === "running" ? (
-                        <Button
-                          variant="outline"
-                          disabled={busy}
-                          onClick={() =>
-                            perform(
-                              { action: "pause", id: campaign.id },
-                              t("Novas abordagens pausadas."),
+                {buscaConcluida && candidates.length > 0 && (
+                  <div className="mt-3">
+                    <AnaliseDaCampanha
+                      candidates={candidates}
+                      busy={busy}
+                      onAnalisar={() =>
+                        campaign
+                          ? perform(
+                              { action: "analyze_sites", id: campaign.id },
+                              t(
+                                "Análise dos sites pedida. Os sinais aparecem conforme cada site é lido.",
+                              ),
                             )
-                          }
+                          : Promise.resolve(false)
+                      }
+                      gastoIaCentavos={Number(campaign.gasto_ia_centavos ?? 0)}
+                      onLerComIa={() =>
+                        perform(
+                          { action: "read_sites_ai", id: campaign.id },
+                          t(
+                            "Leitura por IA pedida. O resumo e os sinais aparecem conforme cada site é lido.",
+                          ),
+                        )
+                      }
+                      gastoMapsUsd={Number(campaign.gasto_maps_usd ?? 0)}
+                      onProcurarNoMaps={() =>
+                        perform(
+                          { action: "search_maps_market", id: campaign.id },
+                          t(
+                            "Busca no Maps começada. O que for achado aparece em alguns minutos, e o site achado entra na análise.",
+                          ),
+                        )
+                      }
+                    />
+                  </div>
+                )}
+                {buscaConcluida && candidates.length > 0 && (
+                  <div className="mt-3 flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span>
+                        {t(
+                          "Nota de 0 a 100: porte, sinais do site, avaliações no Maps e o seu Gostei. Clique na nota para ver os pontos.",
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        className="underline"
+                        onClick={() => setOrdenarPorNota((v) => !v)}
+                      >
+                        {ordenarPorNota ? t("Ordem da busca") : t("Ordenar pela nota")}
+                      </button>
+                    </div>
+                    {canSelect && (
+                      <FicarComAsMelhores
+                        disputa={naDisputa}
+                        busy={busy}
+                        onAplicar={ficarComAsMelhores}
+                      />
+                    )}
+                  </div>
+                )}
+                {(filtro.tipo !== "todos" || filtro.motivo) && (
+                  <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md bg-muted p-3 text-sm">
+                    <span>
+                      {t("Mostrando")} {visiveis.length} {t("de")} {candidates.length}
+                      {filtro.motivo ? `: ${filtro.motivo}` : ""}
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setFiltro({ tipo: "todos" })}
+                    >
+                      {t("Mostrar todas")}
+                    </Button>
+                  </div>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
+                    <tr>
+                      {canSelect && (
+                        <th className="p-4">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={allSelected}
+                              disabled={busy || elegiveis.length === 0}
+                              onChange={() =>
+                                setSelection(
+                                  elegiveis.map((c) => c.id),
+                                  !allSelected,
+                                )
+                              }
+                              aria-label={t("Alternar seleção de todas as empresas")}
+                            />
+                            <span>{t("Abordar")}</span>
+                          </label>
+                        </th>
+                      )}
+                      <th className="min-w-48 p-4">{t("Empresa")}</th>
+                      <th className="min-w-32 p-4">{t("Nota")}</th>
+                      <th className="min-w-52 p-4">{t("Informações")}</th>
+                      <th className="p-4">{t("Progresso")}</th>
+                      <th className="p-4">{t("Conversa")}</th>
+                      <th className="min-w-52 p-4">{t("Sinais do site")}</th>
+                      <th className="min-w-44 p-4">{t("Sua avaliação")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visiveis.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={canSelect ? 8 : 7}
+                          className="p-6 text-center text-sm text-muted-foreground"
                         >
-                          {t("Pausar abordagens")}
-                        </Button>
-                      ) : campaign.status === "paused" ? (
-                        <div className="flex flex-wrap gap-2">
+                          {t("Nenhuma empresa neste filtro.")}
+                        </td>
+                      </tr>
+                    )}
+                    {linhas.map((c) => (
+                      <tr key={c.id} className="border-b last:border-0">
+                        {canSelect && (
+                          <td className="p-4 align-top">
+                            {marcavel(c) && (
+                              <input
+                                type="checkbox"
+                                checked={c.selected !== false}
+                                disabled={busy}
+                                onChange={() => setSelection([c.id], c.selected === false)}
+                                aria-label={t("Marcar empresa para abordagem")}
+                              />
+                            )}
+                          </td>
+                        )}
+                        <td className="p-4 align-top">
+                          <p className="font-medium">{c.data.name}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{c.data.category}</p>
+                          <p className="mt-1 text-xs">{c.data.phone ?? t("Sem telefone")}</p>
+                          <DecisorDaEmpresa decisores={c.decisores} />
+                        </td>
+                        <td className="p-4 align-top">
+                          <NotaDaEmpresa
+                            score={scores.get(c.id) ?? pontuar(c.data, data?.aprendizado)}
+                          />
+                        </td>
+                        <td className="max-w-64 p-4 align-top">
+                          <p className="text-xs text-muted-foreground">{c.data.address}</p>
+                          {safePublicLink(c.data.website) && (
+                            <a
+                              className="mt-1 block underline"
+                              href={safePublicLink(c.data.website)}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {t("Site da empresa")}
+                            </a>
+                          )}
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {c.data.rating ?? "—"} ★ · {c.data.reviews ?? 0} {t("avaliações")}
+                          </p>
+                          {c.data.emails.map((email) => (
+                            <p key={email} className="mt-1 text-xs break-all">
+                              {email}
+                            </p>
+                          ))}
+                          <BuscaNoMapsDaEmpresa busca={c.data.maps_busca} />
+                        </td>
+                        <td className="max-w-64 p-4 align-top">
+                          <Badge variant="outline">{t(labels[c.progress] ?? c.progress)}</Badge>
+                          {c.error && (
+                            <p className="mt-2 text-xs text-muted-foreground">{c.error}</p>
+                          )}
+                          {c.message_status && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {t("Mensagem:")} {c.message_status}
+                            </p>
+                          )}
+                        </td>
+                        <td className="p-4 align-top">
+                          {c.conversation_id && (
+                            <Link className="underline" href={`/app/inbox?id=${c.conversation_id}`}>
+                              {t("Abrir no Inbox")}
+                            </Link>
+                          )}
+                        </td>
+                        <td className="p-4 align-top">
+                          <SinaisDaEmpresa analise={c.data.analise} />
+                        </td>
+                        <td className="p-4 align-top">
+                          <AvaliacaoDaEmpresa
+                            avaliacao={c.data.avaliacao}
+                            busy={busy}
+                            onAvaliar={(nota, motivo) =>
+                              perform(
+                                { action: "rate", id: c.id, nota, motivo: motivo || null },
+                                t(
+                                  "Avaliação salva. As próximas buscas levam em conta o seu gosto.",
+                                ),
+                              )
+                            }
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </>
+      )}
+      {etapa === "campanhas" && (
+        <>
+          <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+            <aside className="flex flex-col gap-5">
+              <section>
+                <h2 className="mb-3 text-sm font-semibold">{t("Suas campanhas")}</h2>
+                <div className="space-y-2">
+                  {data?.campaigns.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        escolherCampanha(c.id);
+                        setFiltro({ tipo: "todos" });
+                        setNotice(null);
+                        // A confirmação de exclusão vale para UMA campanha: ao trocar, ela some.
+                        setConfirmandoExclusao(false);
+                        setMostrarDesmarcadas(false);
+                      }}
+                      className={`w-full rounded-lg border p-3 text-left ${campaign?.id === c.id ? "border-primary bg-primary/5" : "bg-card"}`}
+                    >
+                      <span className="block text-sm font-medium">
+                        {c.name}
+                        {c.referencia_em && (
+                          <span className="ml-2 text-xs font-normal text-muted-foreground">
+                            {t("Referência")}
+                          </span>
+                        )}
+                      </span>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        {t(labels[c.status] ?? c.status)} · {c.result_count} {t("empresas")}
+                        {recusadasPorCampanha[c.id]
+                          ? ` · ${recusadasPorCampanha[c.id]} ${recusadasPorCampanha[c.id] === 1 ? t("recusada") : t("recusadas")}`
+                          : ""}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+              <p className="text-xs text-muted-foreground">
+                {t("Campanha nova nasce na etapa 1, quando você aprova empresas de uma busca.")}
+              </p>
+            </aside>
+            <div className="min-w-0 space-y-5">
+              {!campaign && (
+                <Card className="flex min-h-80 flex-col items-center justify-center gap-3 p-8 text-center">
+                  <h2 className="text-xl font-semibold">{t("Nenhuma campanha ainda")}</h2>
+                  <p className="max-w-md text-sm text-muted-foreground">
+                    {t(
+                      "Encontre empresas na etapa 1. Cada busca aprovada aparece aqui como uma campanha.",
+                    )}
+                  </p>
+                  <Button asChild variant="outline">
+                    <Link href={hrefDaEtapa("empresas", null)}>{t("Ir para a etapa 1")}</Link>
+                  </Button>
+                </Card>
+              )}
+              {campaign && (
+                <Card className="p-5">
+                  <h2 className="text-lg font-semibold">{t("Preparar a campanha")}</h2>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-base font-semibold">{campaign.name}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {t(labels[campaign.search_status] ?? campaign.search_status)}
+                        {campaign.cost_usd !== null
+                          ? ` · US$ ${Number(campaign.cost_usd).toFixed(2)}`
+                          : ""}
+                      </p>
+                    </div>
+                    <Badge variant="outline">{t(labels[campaign.status] ?? campaign.status)}</Badge>
+                  </div>
+                  {campaign.error &&
+                    // Busca concluída e campanha ainda em rascunho: o campo traz o
+                    // AVISO da busca (já em outra campanha, busca interrompida), não
+                    // uma falha. Ver `avisoDaBusca` em lib/prospecting/store.ts.
+                    (campaign.status === "draft" && campaign.search_status === "succeeded" ? (
+                      <p className="mt-4 rounded-md border p-3 text-sm text-muted-foreground">
+                        {campaign.error}
+                      </p>
+                    ) : (
+                      <p role="alert" className="mt-4 rounded-md bg-destructive/10 p-3 text-sm">
+                        {campaign.error}
+                      </p>
+                    ))}
+                  {campaign.search_status === "succeeded" && (
+                    <ReferenciaDaCampanha
+                      referencia={!!campaign.referencia_em}
+                      motivo={campaign.referencia_motivo}
+                      busy={busy}
+                      onMarcar={(ativa, motivo) =>
+                        perform(
+                          { action: "reference", id: campaign.id, ativa, motivo: motivo || null },
+                          ativa
+                            ? t("Campanha marcada como referência do perfil ideal.")
+                            : t("A campanha deixou de ser referência."),
+                        )
+                      }
+                    />
+                  )}
+                  {campaign.skipped_count > 0 && (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      {campaign.skipped_count}{" "}
+                      {t("resultados repetidos ou indisponíveis foram desconsiderados.")}
+                    </p>
+                  )}
+                  {campaign.config && (
+                    <>
+                      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                        <p className="text-sm text-muted-foreground">
+                          {t("Ritmo:")} {campaign.config.daily_limit}{" "}
+                          {t("abordagens em 24 horas, com pelo menos")}{" "}
+                          {campaign.config.interval_minutes} {t("minutos entre elas.")}
+                        </p>
+                        {campaign.status === "running" ? (
                           <Button
                             variant="outline"
-                            disabled={busy}
-                            onClick={() => alternarEdicaoDoRitmo(campaign)}
-                          >
-                            {t("Editar ritmo")}
-                          </Button>
-                          <Button
                             disabled={busy}
                             onClick={() =>
                               perform(
-                                { action: "resume", id: campaign.id },
-                                t("Campanha retomada."),
+                                { action: "pause", id: campaign.id },
+                                t("Novas abordagens pausadas."),
                               )
                             }
                           >
-                            {t("Retomar fila")}
+                            {t("Pausar abordagens")}
                           </Button>
-                        </div>
-                      ) : null}
-                    </div>
-                    {campaign.status === "paused" && ritmo?.campaignId === campaign.id && (
-                      <form
-                        className="mt-4 space-y-3 rounded-md border p-4"
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          void salvarRitmo();
-                        }}
-                      >
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label htmlFor="prospecting-pace-daily">
-                              {t("Máximo em 24 horas")}
-                            </Label>
-                            <Input
-                              id="prospecting-pace-daily"
-                              type="number"
-                              min={1}
-                              max={50}
-                              required
-                              value={ritmo.daily_limit}
-                              onChange={(e) =>
-                                setRitmo({ ...ritmo, daily_limit: Number(e.target.value) })
+                        ) : campaign.status === "paused" ? (
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              disabled={busy}
+                              onClick={() => alternarEdicaoDoRitmo(campaign)}
+                            >
+                              {t("Editar ritmo")}
+                            </Button>
+                            <Button
+                              disabled={busy}
+                              onClick={() =>
+                                perform(
+                                  { action: "resume", id: campaign.id },
+                                  t("Campanha retomada."),
+                                )
                               }
-                              className="mt-1"
-                            />
+                            >
+                              {t("Retomar fila")}
+                            </Button>
                           </div>
-                          <div>
-                            <Label htmlFor="prospecting-pace-spacing">
-                              {t("Intervalo mínimo (minutos)")}
-                            </Label>
-                            <Input
-                              id="prospecting-pace-spacing"
-                              type="number"
-                              min={5}
-                              max={1440}
-                              required
-                              value={ritmo.interval_minutes}
-                              onChange={(e) =>
-                                setRitmo({ ...ritmo, interval_minutes: Number(e.target.value) })
-                              }
-                              className="mt-1"
-                            />
-                          </div>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          {t(
-                            "Só dá para ajustar com a campanha pausada. Ao retomar, o próximo envio já usa o ritmo novo. Limite de 1 a 50 por dia e intervalo de 5 a 1440 minutos.",
-                          )}
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          <Button type="submit" disabled={busy || !ritmoValido}>
-                            {t("Salvar ritmo")}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() => setRitmo(null)}
-                          >
-                            {t("Cancelar")}
-                          </Button>
-                        </div>
-                      </form>
-                    )}
-                  </>
-                )}
-              </Card>
-              {campaign.status === "draft" &&
-                campaign.search_status === "succeeded" &&
-                candidates.length > 0 && (
-                  <Card className="p-5">
-                    <h2 className="text-lg font-semibold">{t("2. Preparar a abordagem")}</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {t(
-                        "A IA usa o agente escolhido para abrir a conversa e atender as respostas. As proteções do canal continuam valendo.",
-                      )}
-                    </p>
-                    {!campaign.config && (
-                      <div className="mt-4 space-y-4">
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            variant={!manual ? "secondary" : "outline"}
-                            onClick={() =>
-                              setManualCampaigns((current) => ({
-                                ...current,
-                                [campaign.id]: false,
-                              }))
-                            }
-                          >
-                            {t("Configurar por conversa")}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant={manual ? "secondary" : "outline"}
-                            onClick={() =>
-                              setManualCampaigns((current) => ({ ...current, [campaign.id]: true }))
-                            }
-                          >
-                            {t("Usar agente existente / configurar manualmente")}
-                          </Button>
-                        </div>
-                        {!manual && !config.agent_id && data && (
-                          <ProspectingAgentBuilder
-                            key={campaign.id}
-                            campaign={campaign}
-                            config={config}
-                            channels={data.channels}
-                            stages={data.stages}
-                            onCreated={selectCreatedAgent}
-                          />
-                        )}
-                        {!manual && config.agent_id && (
-                          <section
-                            aria-label={t("Agente selecionado")}
-                            className="space-y-2 rounded-xl border bg-muted/20 p-4 text-sm"
-                          >
-                            <p className="font-semibold">
-                              {agents.find((agent) => agent.id === config.agent_id)?.name ??
-                                t("Agente selecionado")}
-                            </p>
-                            <p className="whitespace-pre-wrap text-muted-foreground">
-                              {config.instruction}
-                            </p>
-                            <div className="flex flex-wrap gap-4">
-                              <Link
-                                className="underline"
-                                href={`/app/ai/agents/${config.agent_id}`}
-                              >
-                                {t("Configurações avançadas do agente")}
-                              </Link>
-                              <Link
-                                className="underline"
-                                href={`/app/ai/agents/${config.agent_id}#voice-assistant`}
-                              >
-                                {t("Configurar assistente de voz")}
-                              </Link>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              {t(
-                                "Agente pronto. Escolha o ritmo abaixo e inicie quando estiver preparado.",
-                              )}
-                            </p>
-                          </section>
-                        )}
+                        ) : null}
                       </div>
-                    )}
-                    {(manual || config.agent_id) && (
-                      <form
-                        className="mt-5 space-y-4"
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          void perform(
-                            { action: "start", id: campaign.id, config },
-                            t(
-                              "Campanha iniciada. A primeira abordagem será preparada após um minuto.",
-                            ),
-                          );
-                        }}
-                      >
-                        {campaign.config && (
-                          <p className="text-sm text-muted-foreground">
-                            {t(
-                              "Esta campanha já começou a preparar contatos. Sua configuração foi preservada para retomar com segurança.",
-                            )}
-                          </p>
-                        )}
-                        <fieldset disabled={!!campaign.config} className="space-y-4">
-                          {manual && (
-                            <div className="space-y-4">
-                              <div className="grid gap-4 md:grid-cols-2">
-                                <div>
-                                  <Label htmlFor="prospecting-agent">{t("Agente de IA")}</Label>
-                                  <select
-                                    id="prospecting-agent"
-                                    className={`${selectClass} mt-1`}
-                                    value={config.agent_id}
-                                    onChange={(e) => update("agent_id", e.target.value)}
-                                    required
-                                  >
-                                    <option value="">{t("Escolha um agente publicado")}</option>
-                                    {agents.map((a) => (
-                                      <option key={a.id} value={a.id}>
-                                        {a.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  {config.agent_id && (
-                                    <Link
-                                      className="mt-2 block text-xs underline"
-                                      href={`/app/ai/agents/${config.agent_id}`}
-                                    >
-                                      {t("Configurações avançadas do agente")}
-                                    </Link>
-                                  )}
-                                </div>
-                                <div>
-                                  <Label htmlFor="prospecting-channel">
-                                    {t("Conexão de saída")}
-                                  </Label>
-                                  <select
-                                    id="prospecting-channel"
-                                    className={`${selectClass} mt-1`}
-                                    value={config.channel_session_id}
-                                    onChange={(e) => update("channel_session_id", e.target.value)}
-                                    required
-                                  >
-                                    <option value="">{t("Escolha uma conexão ativa")}</option>
-                                    {data?.channels
-                                      .filter((c) => c.status === "WORKING")
-                                      .map((c) => (
-                                        <option key={c.id} value={c.id}>
-                                          {c.display_name ?? c.phone_number ?? c.id}
-                                        </option>
-                                      ))}
-                                  </select>
-                                  <Link className="text-xs underline" href="/app/connections">
-                                    {t("Ver conexões e proteções de envio")}
-                                  </Link>
-                                </div>
-                              </div>
-                              <div>
-                                <Label htmlFor="prospecting-pipeline">{t("Funil")}</Label>
-                                <select
-                                  id="prospecting-pipeline"
-                                  className={`${selectClass} mt-1`}
-                                  value={funil}
-                                  required
-                                  onChange={(e) => {
-                                    setConfig((c) => ({
-                                      ...c,
-                                      pipeline_id: e.target.value,
-                                      stage_id: "",
-                                      qualified_stage_id: "",
-                                    }));
-                                  }}
-                                >
-                                  <option value="">{t("Escolha o funil")}</option>
-                                  {[
-                                    ...new Map(
-                                      data?.stages.map((s) => [s.pipeline_id, s.pipeline_name]),
-                                    ).entries(),
-                                  ].map(([id, name]) => (
-                                    <option key={id} value={id}>
-                                      {name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div className="grid gap-4 md:grid-cols-2">
-                                {(
-                                  [
-                                    ["stage_id", "Etapa inicial"],
-                                    ["qualified_stage_id", "Etapa de qualificados"],
-                                  ] as const
-                                ).map(([field, label]) => (
-                                  <div key={field}>
-                                    <Label htmlFor={`prospecting-${field}`}>{t(label)}</Label>
-                                    <select
-                                      id={`prospecting-${field}`}
-                                      className={`${selectClass} mt-1`}
-                                      required
-                                      value={config[field]}
-                                      onChange={(e) => update(field, e.target.value)}
-                                    >
-                                      <option value="">{t("Escolha a etapa")}</option>
-                                      {data?.stages
-                                        .filter((s) => s.pipeline_id === funil)
-                                        .map((s) => (
-                                          <option key={s.id} value={s.id}>
-                                            {s.name}
-                                          </option>
-                                        ))}
-                                    </select>
-                                  </div>
-                                ))}
-                              </div>
-                              <div>
-                                <Label htmlFor="prospecting-instruction">
-                                  {t("O que a IA deve oferecer e como iniciar")}
-                                </Label>
-                                <Textarea
-                                  id="prospecting-instruction"
-                                  value={config.instruction}
-                                  onChange={(e) => update("instruction", e.target.value)}
-                                  required
-                                  minLength={10}
-                                  maxLength={2000}
-                                  className="mt-1"
-                                  placeholder={t(
-                                    "Descreva sua oferta e o objetivo da primeira conversa.",
-                                  )}
-                                />
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                  {t(
-                                    "Este texto se soma ao prompt do agente nas conversas desta campanha. Se você mudar o prompt do agente, confira se os dois ainda dizem a mesma coisa.",
-                                  )}
-                                </p>
-                              </div>
-                              <div>
-                                <Label htmlFor="prospecting-qualification">
-                                  {t("Quando considerar o cliente qualificado")}
-                                </Label>
-                                <Textarea
-                                  id="prospecting-qualification"
-                                  value={config.qualification}
-                                  onChange={(e) => update("qualification", e.target.value)}
-                                  required
-                                  minLength={10}
-                                  maxLength={2000}
-                                  className="mt-1"
-                                  placeholder={t(
-                                    "Ex.: confirmou a necessidade, participa da decisão e deseja conversar sobre a solução.",
-                                  )}
-                                />
-                              </div>
-                            </div>
-                          )}
+                      {campaign.status === "paused" && ritmo?.campaignId === campaign.id && (
+                        <form
+                          className="mt-4 space-y-3 rounded-md border p-4"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            void salvarRitmo();
+                          }}
+                        >
                           <div className="grid grid-cols-2 gap-4">
                             <div>
-                              <Label htmlFor="prospecting-daily">{t("Máximo em 24 horas")}</Label>
+                              <Label htmlFor="prospecting-pace-daily">
+                                {t("Máximo em 24 horas")}
+                              </Label>
                               <Input
-                                id="prospecting-daily"
+                                id="prospecting-pace-daily"
                                 type="number"
                                 min={1}
                                 max={50}
                                 required
-                                value={config.daily_limit}
-                                onChange={(e) => update("daily_limit", Number(e.target.value))}
+                                value={ritmo.daily_limit}
+                                onChange={(e) =>
+                                  setRitmo({ ...ritmo, daily_limit: Number(e.target.value) })
+                                }
                                 className="mt-1"
                               />
                             </div>
                             <div>
-                              <Label htmlFor="prospecting-spacing">
+                              <Label htmlFor="prospecting-pace-spacing">
                                 {t("Intervalo mínimo (minutos)")}
                               </Label>
                               <Input
-                                id="prospecting-spacing"
+                                id="prospecting-pace-spacing"
                                 type="number"
                                 min={5}
                                 max={1440}
                                 required
-                                value={config.interval_minutes}
-                                onChange={(e) => update("interval_minutes", Number(e.target.value))}
+                                value={ritmo.interval_minutes}
+                                onChange={(e) =>
+                                  setRitmo({ ...ritmo, interval_minutes: Number(e.target.value) })
+                                }
                                 className="mt-1"
                               />
                             </div>
                           </div>
-                          <fieldset className="space-y-2">
-                            <legend className="text-sm font-medium">
-                              {t("Quando a empresa entra no funil")}
-                            </legend>
-                            <label className="flex items-start gap-2 text-sm">
-                              <input
-                                type="radio"
-                                name="prospecting-funnel-entry"
-                                checked={(config.funnel_entry ?? "on_start") === "on_send"}
-                                onChange={() => update("funnel_entry", "on_send")}
-                                className="mt-1"
-                              />
-                              <span>
-                                {t("Só quando for abordada (recomendado)")}
-                                <span className="block text-xs text-muted-foreground">
-                                  {t("O funil mostra só quem já recebeu a primeira mensagem.")}
-                                </span>
-                              </span>
-                            </label>
-                            <label className="flex items-start gap-2 text-sm">
-                              <input
-                                type="radio"
-                                name="prospecting-funnel-entry"
-                                checked={(config.funnel_entry ?? "on_start") === "on_start"}
-                                onChange={() => update("funnel_entry", "on_start")}
-                                className="mt-1"
-                              />
-                              <span>
-                                {t("Todas ao iniciar")}
-                                <span className="block text-xs text-muted-foreground">
-                                  {t(
-                                    "Contato, negócio e conversa de toda a fila são criados na hora de iniciar.",
-                                  )}
-                                </span>
-                              </span>
-                            </label>
-                          </fieldset>
-                          <div>
-                            <Label htmlFor="prospecting-basis">
-                              {t("Referência da avaliação de legítimo interesse")}
-                            </Label>
-                            <Input
-                              id="prospecting-basis"
-                              value={config.legal_basis_ref}
-                              onChange={(e) => update("legal_basis_ref", e.target.value)}
-                              minLength={3}
-                              maxLength={500}
-                              required
-                              className="mt-1"
-                            />
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {t(
-                                "Informe a referência real da avaliação que fundamenta esta prospecção. Isso não registra consentimento dos contatos.",
-                              )}
-                            </p>
-                          </div>
                           <p className="text-xs text-muted-foreground">
-                            {(config.funnel_entry ?? "on_start") === "on_send"
-                              ? t(
-                                  "Ao iniciar, as empresas com telefone entram na fila. Cada uma entra no funil só quando for abordada. Contatos já existentes são preservados. A fila faz uma primeira abordagem; respostas seguem no Inbox. Uma mensagem já em transmissão pode concluir após a pausa.",
-                                )
-                              : t(
-                                  "Ao iniciar, os contatos novos com telefone entram no funil. Contatos já existentes são preservados. A fila faz uma primeira abordagem; respostas seguem no Inbox. Uma mensagem já em transmissão pode concluir após a pausa.",
-                                )}
+                            {t(
+                              "Só dá para ajustar com a campanha pausada. Ao retomar, o próximo envio já usa o ritmo novo. Limite de 1 a 50 por dia e intervalo de 5 a 1440 minutos.",
+                            )}
                           </p>
-                        </fieldset>
-                        <Button
-                          type="submit"
-                          disabled={
-                            busy ||
-                            !agents.length ||
-                            !data?.channels.some((c) => c.status === "WORKING")
-                          }
-                        >
-                          {t("Iniciar abordagens com IA")}
-                        </Button>
-                      </form>
-                    )}
-                  </Card>
-                )}
-            </>
-          )}
-        </div>
-      </div>
-      {/* Fork: a parte 3 ocupa a largura toda, abaixo das colunas (a tabela tem 8 colunas). */}
-      {campaign && candidates.length > 0 && (
-        <Card ref={resultados} className="scroll-mt-4 overflow-hidden">
-          <div className="border-b p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold">{t("3. Acompanhar resultados")}</h2>
-                <p className="text-sm text-muted-foreground">
-                  {t(
-                    "Encontrado é diferente de qualificado. A qualificação depende do que for confirmado na conversa.",
+                          <div className="flex flex-wrap gap-2">
+                            <Button type="submit" disabled={busy || !ritmoValido}>
+                              {t("Salvar ritmo")}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              disabled={busy}
+                              onClick={() => setRitmo(null)}
+                            >
+                              {t("Cancelar")}
+                            </Button>
+                          </div>
+                        </form>
+                      )}
+                    </>
                   )}
-                </p>
-              </div>
-              {canSelect && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-muted-foreground">
-                    {noRascunho
-                      ? t("Somente as empresas marcadas entram na fila ao iniciar as abordagens.")
-                      : t(
-                          "Com a campanha pausada, marque ou desmarque as empresas que ainda estão na fila. Quem já foi abordado não muda.",
-                        )}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || elegiveis.length === 0 || allSelected}
-                    onClick={() =>
-                      setSelection(
-                        elegiveis.map((c) => c.id),
-                        true,
-                      )
-                    }
-                  >
-                    {t("Marcar todas")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || noneSelected}
-                    onClick={() =>
-                      setSelection(
-                        elegiveis.map((c) => c.id),
-                        false,
-                      )
-                    }
-                  >
-                    {t("Desmarcar todas")}
-                  </Button>
-                  {desmarcadas.length > 0 && (
-                    <button
-                      type="button"
-                      className="text-xs underline"
-                      onClick={() => setMostrarDesmarcadas((v) => !v)}
-                    >
-                      {mostrarDesmarcadas
-                        ? t("Esconder desmarcadas")
-                        : `${t("Mostrar desmarcadas")} (${desmarcadas.length})`}
-                    </button>
+                  {noRascunho && candidates.length > 0 && !campaign.config && (
+                    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                      <p className="text-sm text-muted-foreground">
+                        {t("As empresas marcadas entram na fila quando a abordagem começar.")}
+                      </p>
+                      <Button asChild>
+                        <Link href={hrefDaEtapa("abordagem", campaign.id)}>
+                          {t("Preparar a abordagem")}
+                        </Link>
+                      </Button>
+                    </div>
                   )}
-                  {descartaveis.length > 0 &&
-                    (confirmandoExclusao ? (
-                      <span className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs text-muted-foreground">
-                          {t(
-                            "Excluir tira essas empresas da lista. Em outra busca, elas podem aparecer de novo como novas.",
-                          )}
-                        </span>
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="sm"
-                          disabled={busy}
-                          onClick={() => void excluirDesmarcadas()}
-                        >
-                          {t("Confirmar exclusão")}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={busy}
-                          onClick={() => setConfirmandoExclusao(false)}
-                        >
-                          {t("Cancelar")}
-                        </Button>
+                </Card>
+              )}
+            </div>
+          </div>
+          {campaign && candidates.length > 0 && (
+            <Card ref={resultados} className="scroll-mt-4 overflow-hidden">
+              <div className="border-b p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold">{t("Acompanhar resultados")}</h2>
+                    <p className="text-sm text-muted-foreground">
+                      {t(
+                        "Encontrado é diferente de qualificado. A qualificação depende do que for confirmado na conversa.",
+                      )}
+                    </p>
+                  </div>
+                  {canSelect && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        {noRascunho
+                          ? t(
+                              "Somente as empresas marcadas entram na fila ao iniciar as abordagens.",
+                            )
+                          : t(
+                              "Com a campanha pausada, marque ou desmarque as empresas que ainda estão na fila. Quem já foi abordado não muda.",
+                            )}
                       </span>
-                    ) : (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        disabled={busy}
-                        onClick={() => setConfirmandoExclusao(true)}
-                      >
-                        {`${t("Excluir desmarcadas")} (${descartaveis.length})`}
-                      </Button>
-                    ))}
-                  {naFilaPausada && !criaSoNoEnvio && (
-                    <span className="basis-full text-xs text-muted-foreground">
-                      {t(
-                        "Esta campanha já criou o contato e o negócio dessas empresas ao iniciar. Desmarcar só impede o envio: elas continuam no funil.",
-                      )}
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-            {buscaConcluida && candidates.length > 0 && (
-              <div className="mt-3">
-                <AnaliseDaCampanha
-                  candidates={candidates}
-                  busy={busy}
-                  onAnalisar={() =>
-                    campaign
-                      ? perform(
-                          { action: "analyze_sites", id: campaign.id },
-                          t(
-                            "Análise dos sites pedida. Os sinais aparecem conforme cada site é lido.",
-                          ),
-                        )
-                      : Promise.resolve(false)
-                  }
-                  gastoIaCentavos={Number(campaign.gasto_ia_centavos ?? 0)}
-                  onLerComIa={() =>
-                    perform(
-                      { action: "read_sites_ai", id: campaign.id },
-                      t(
-                        "Leitura por IA pedida. O resumo e os sinais aparecem conforme cada site é lido.",
-                      ),
-                    )
-                  }
-                  gastoMapsUsd={Number(campaign.gasto_maps_usd ?? 0)}
-                  onProcurarNoMaps={() =>
-                    perform(
-                      { action: "search_maps_market", id: campaign.id },
-                      t(
-                        "Busca no Maps começada. O que for achado aparece em alguns minutos, e o site achado entra na análise.",
-                      ),
-                    )
-                  }
-                />
-              </div>
-            )}
-            {buscaConcluida && candidates.length > 0 && (
-              <div className="mt-3 flex flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span>
-                    {t(
-                      "Nota de 0 a 100: porte, sinais do site, avaliações no Maps e o seu Gostei. Clique na nota para ver os pontos.",
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    className="underline"
-                    onClick={() => setOrdenarPorNota((v) => !v)}
-                  >
-                    {ordenarPorNota ? t("Ordem da busca") : t("Ordenar pela nota")}
-                  </button>
-                </div>
-                {canSelect && (
-                  <FicarComAsMelhores
-                    disputa={naDisputa}
-                    busy={busy}
-                    onAplicar={ficarComAsMelhores}
-                  />
-                )}
-              </div>
-            )}
-            {(filtro.tipo !== "todos" || filtro.motivo) && (
-              <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md bg-muted p-3 text-sm">
-                <span>
-                  {t("Mostrando")} {visiveis.length} {t("de")} {candidates.length}
-                  {filtro.motivo ? `: ${filtro.motivo}` : ""}
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setFiltro({ tipo: "todos" })}
-                >
-                  {t("Mostrar todas")}
-                </Button>
-              </div>
-            )}
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
-                <tr>
-                  {canSelect && (
-                    <th className="p-4">
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={allSelected}
-                          disabled={busy || elegiveis.length === 0}
-                          onChange={() =>
-                            setSelection(
-                              elegiveis.map((c) => c.id),
-                              !allSelected,
-                            )
-                          }
-                          aria-label={t("Alternar seleção de todas as empresas")}
-                        />
-                        <span>{t("Abordar")}</span>
-                      </label>
-                    </th>
-                  )}
-                  <th className="min-w-48 p-4">{t("Empresa")}</th>
-                  <th className="min-w-32 p-4">{t("Nota")}</th>
-                  <th className="min-w-52 p-4">{t("Informações")}</th>
-                  <th className="p-4">{t("Progresso")}</th>
-                  <th className="p-4">{t("Conversa")}</th>
-                  <th className="min-w-52 p-4">{t("Sinais do site")}</th>
-                  <th className="min-w-44 p-4">{t("Sua avaliação")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visiveis.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={canSelect ? 8 : 7}
-                      className="p-6 text-center text-sm text-muted-foreground"
-                    >
-                      {t("Nenhuma empresa neste filtro.")}
-                    </td>
-                  </tr>
-                )}
-                {linhas.map((c) => (
-                  <tr key={c.id} className="border-b last:border-0">
-                    {canSelect && (
-                      <td className="p-4 align-top">
-                        {marcavel(c) && (
-                          <input
-                            type="checkbox"
-                            checked={c.selected !== false}
-                            disabled={busy}
-                            onChange={() => setSelection([c.id], c.selected === false)}
-                            aria-label={t("Marcar empresa para abordagem")}
-                          />
-                        )}
-                      </td>
-                    )}
-                    <td className="p-4 align-top">
-                      <p className="font-medium">{c.data.name}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{c.data.category}</p>
-                      <p className="mt-1 text-xs">{c.data.phone ?? t("Sem telefone")}</p>
-                      <DecisorDaEmpresa decisores={c.decisores} />
-                    </td>
-                    <td className="p-4 align-top">
-                      <NotaDaEmpresa
-                        score={scores.get(c.id) ?? pontuar(c.data, data?.aprendizado)}
-                      />
-                    </td>
-                    <td className="max-w-64 p-4 align-top">
-                      <p className="text-xs text-muted-foreground">{c.data.address}</p>
-                      {safePublicLink(c.data.website) && (
-                        <a
-                          className="mt-1 block underline"
-                          href={safePublicLink(c.data.website)}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {t("Site da empresa")}
-                        </a>
-                      )}
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {c.data.rating ?? "—"} ★ · {c.data.reviews ?? 0} {t("avaliações")}
-                      </p>
-                      {c.data.emails.map((email) => (
-                        <p key={email} className="mt-1 text-xs break-all">
-                          {email}
-                        </p>
-                      ))}
-                      <BuscaNoMapsDaEmpresa busca={c.data.maps_busca} />
-                    </td>
-                    <td className="max-w-64 p-4 align-top">
-                      <Badge variant="outline">{t(labels[c.progress] ?? c.progress)}</Badge>
-                      {c.error && <p className="mt-2 text-xs text-muted-foreground">{c.error}</p>}
-                      {c.message_status && (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {t("Mensagem:")} {c.message_status}
-                        </p>
-                      )}
-                    </td>
-                    <td className="p-4 align-top">
-                      {c.conversation_id && (
-                        <Link className="underline" href={`/app/inbox?id=${c.conversation_id}`}>
-                          {t("Abrir no Inbox")}
-                        </Link>
-                      )}
-                    </td>
-                    <td className="p-4 align-top">
-                      <SinaisDaEmpresa analise={c.data.analise} />
-                    </td>
-                    <td className="p-4 align-top">
-                      <AvaliacaoDaEmpresa
-                        avaliacao={c.data.avaliacao}
-                        busy={busy}
-                        onAvaliar={(nota, motivo) =>
-                          perform(
-                            { action: "rate", id: c.id, nota, motivo: motivo || null },
-                            t("Avaliação salva. As próximas buscas levam em conta o seu gosto."),
+                        disabled={busy || elegiveis.length === 0 || allSelected}
+                        onClick={() =>
+                          setSelection(
+                            elegiveis.map((c) => c.id),
+                            true,
                           )
                         }
+                      >
+                        {t("Marcar todas")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={busy || noneSelected}
+                        onClick={() =>
+                          setSelection(
+                            elegiveis.map((c) => c.id),
+                            false,
+                          )
+                        }
+                      >
+                        {t("Desmarcar todas")}
+                      </Button>
+                      {desmarcadas.length > 0 && (
+                        <button
+                          type="button"
+                          className="text-xs underline"
+                          onClick={() => setMostrarDesmarcadas((v) => !v)}
+                        >
+                          {mostrarDesmarcadas
+                            ? t("Esconder desmarcadas")
+                            : `${t("Mostrar desmarcadas")} (${desmarcadas.length})`}
+                        </button>
+                      )}
+                      {descartaveis.length > 0 &&
+                        (confirmandoExclusao ? (
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs text-muted-foreground">
+                              {t(
+                                "Excluir tira essas empresas da lista. Em outra busca, elas podem aparecer de novo como novas.",
+                              )}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() => void excluirDesmarcadas()}
+                            >
+                              {t("Confirmar exclusão")}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() => setConfirmandoExclusao(false)}
+                            >
+                              {t("Cancelar")}
+                            </Button>
+                          </span>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => setConfirmandoExclusao(true)}
+                          >
+                            {`${t("Excluir desmarcadas")} (${descartaveis.length})`}
+                          </Button>
+                        ))}
+                      {naFilaPausada && !criaSoNoEnvio && (
+                        <span className="basis-full text-xs text-muted-foreground">
+                          {t(
+                            "Esta campanha já criou o contato e o negócio dessas empresas ao iniciar. Desmarcar só impede o envio: elas continuam no funil.",
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-3">
+                  {filtrosDaEtapa.map((tipo) => {
+                    const ativo = filtro.tipo === tipo && !filtro.motivo;
+                    return (
+                      <button
+                        key={tipo}
+                        type="button"
+                        aria-pressed={ativo}
+                        title={t("Mostrar na tabela de resultados")}
+                        onClick={() => filtrar(tipo)}
+                        className={`rounded-md p-2 text-left transition-colors hover:bg-muted ${ativo ? "bg-muted" : ""}`}
+                      >
+                        <p className="text-2xl font-semibold tabular-nums">{count(tipo)}</p>
+                        <p className="text-xs text-muted-foreground underline-offset-2 hover:underline">
+                          {rotulosDosFiltros[tipo]}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+                {filtrosDaEtapa.includes("recusados") && motivosDeRecusa.length > 0 && (
+                  <div className="mt-4 rounded-md border p-3">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {t("Por que ficaram de fora")}
+                    </p>
+                    <ul className="mt-2 space-y-1 text-sm">
+                      {motivosDeRecusa.map(([motivo, quantos]) => (
+                        <li key={motivo}>
+                          <button
+                            type="button"
+                            onClick={() => filtrar("recusados", motivo)}
+                            className="flex w-full gap-3 rounded-md text-left hover:bg-muted"
+                          >
+                            <span className="w-8 shrink-0 text-right font-medium tabular-nums">
+                              {quantos}
+                            </span>
+                            <span className="text-muted-foreground underline-offset-2 hover:underline">
+                              {motivo}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {buscaConcluida && candidates.length > 0 && (
+                  <div className="mt-3">
+                    <AnaliseDaCampanha
+                      candidates={candidates}
+                      busy={busy}
+                      onAnalisar={() =>
+                        campaign
+                          ? perform(
+                              { action: "analyze_sites", id: campaign.id },
+                              t(
+                                "Análise dos sites pedida. Os sinais aparecem conforme cada site é lido.",
+                              ),
+                            )
+                          : Promise.resolve(false)
+                      }
+                      gastoIaCentavos={Number(campaign.gasto_ia_centavos ?? 0)}
+                      onLerComIa={() =>
+                        perform(
+                          { action: "read_sites_ai", id: campaign.id },
+                          t(
+                            "Leitura por IA pedida. O resumo e os sinais aparecem conforme cada site é lido.",
+                          ),
+                        )
+                      }
+                      gastoMapsUsd={Number(campaign.gasto_maps_usd ?? 0)}
+                      onProcurarNoMaps={() =>
+                        perform(
+                          { action: "search_maps_market", id: campaign.id },
+                          t(
+                            "Busca no Maps começada. O que for achado aparece em alguns minutos, e o site achado entra na análise.",
+                          ),
+                        )
+                      }
+                    />
+                  </div>
+                )}
+                {buscaConcluida && candidates.length > 0 && (
+                  <div className="mt-3 flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span>
+                        {t(
+                          "Nota de 0 a 100: porte, sinais do site, avaliações no Maps e o seu Gostei. Clique na nota para ver os pontos.",
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        className="underline"
+                        onClick={() => setOrdenarPorNota((v) => !v)}
+                      >
+                        {ordenarPorNota ? t("Ordem da busca") : t("Ordenar pela nota")}
+                      </button>
+                    </div>
+                    {canSelect && (
+                      <FicarComAsMelhores
+                        disputa={naDisputa}
+                        busy={busy}
+                        onAplicar={ficarComAsMelhores}
                       />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    )}
+                  </div>
+                )}
+                {(filtro.tipo !== "todos" || filtro.motivo) && (
+                  <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md bg-muted p-3 text-sm">
+                    <span>
+                      {t("Mostrando")} {visiveis.length} {t("de")} {candidates.length}
+                      {filtro.motivo ? `: ${filtro.motivo}` : ""}
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setFiltro({ tipo: "todos" })}
+                    >
+                      {t("Mostrar todas")}
+                    </Button>
+                  </div>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
+                    <tr>
+                      {canSelect && (
+                        <th className="p-4">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={allSelected}
+                              disabled={busy || elegiveis.length === 0}
+                              onChange={() =>
+                                setSelection(
+                                  elegiveis.map((c) => c.id),
+                                  !allSelected,
+                                )
+                              }
+                              aria-label={t("Alternar seleção de todas as empresas")}
+                            />
+                            <span>{t("Abordar")}</span>
+                          </label>
+                        </th>
+                      )}
+                      <th className="min-w-48 p-4">{t("Empresa")}</th>
+                      <th className="min-w-32 p-4">{t("Nota")}</th>
+                      <th className="min-w-52 p-4">{t("Informações")}</th>
+                      <th className="p-4">{t("Progresso")}</th>
+                      <th className="p-4">{t("Conversa")}</th>
+                      <th className="min-w-52 p-4">{t("Sinais do site")}</th>
+                      <th className="min-w-44 p-4">{t("Sua avaliação")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visiveis.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={canSelect ? 8 : 7}
+                          className="p-6 text-center text-sm text-muted-foreground"
+                        >
+                          {t("Nenhuma empresa neste filtro.")}
+                        </td>
+                      </tr>
+                    )}
+                    {linhas.map((c) => (
+                      <tr key={c.id} className="border-b last:border-0">
+                        {canSelect && (
+                          <td className="p-4 align-top">
+                            {marcavel(c) && (
+                              <input
+                                type="checkbox"
+                                checked={c.selected !== false}
+                                disabled={busy}
+                                onChange={() => setSelection([c.id], c.selected === false)}
+                                aria-label={t("Marcar empresa para abordagem")}
+                              />
+                            )}
+                          </td>
+                        )}
+                        <td className="p-4 align-top">
+                          <p className="font-medium">{c.data.name}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{c.data.category}</p>
+                          <p className="mt-1 text-xs">{c.data.phone ?? t("Sem telefone")}</p>
+                          <DecisorDaEmpresa decisores={c.decisores} />
+                        </td>
+                        <td className="p-4 align-top">
+                          <NotaDaEmpresa
+                            score={scores.get(c.id) ?? pontuar(c.data, data?.aprendizado)}
+                          />
+                        </td>
+                        <td className="max-w-64 p-4 align-top">
+                          <p className="text-xs text-muted-foreground">{c.data.address}</p>
+                          {safePublicLink(c.data.website) && (
+                            <a
+                              className="mt-1 block underline"
+                              href={safePublicLink(c.data.website)}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {t("Site da empresa")}
+                            </a>
+                          )}
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {c.data.rating ?? "—"} ★ · {c.data.reviews ?? 0} {t("avaliações")}
+                          </p>
+                          {c.data.emails.map((email) => (
+                            <p key={email} className="mt-1 text-xs break-all">
+                              {email}
+                            </p>
+                          ))}
+                          <BuscaNoMapsDaEmpresa busca={c.data.maps_busca} />
+                        </td>
+                        <td className="max-w-64 p-4 align-top">
+                          <Badge variant="outline">{t(labels[c.progress] ?? c.progress)}</Badge>
+                          {c.error && (
+                            <p className="mt-2 text-xs text-muted-foreground">{c.error}</p>
+                          )}
+                          {c.message_status && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {t("Mensagem:")} {c.message_status}
+                            </p>
+                          )}
+                        </td>
+                        <td className="p-4 align-top">
+                          {c.conversation_id && (
+                            <Link className="underline" href={`/app/inbox?id=${c.conversation_id}`}>
+                              {t("Abrir no Inbox")}
+                            </Link>
+                          )}
+                        </td>
+                        <td className="p-4 align-top">
+                          <SinaisDaEmpresa analise={c.data.analise} />
+                        </td>
+                        <td className="p-4 align-top">
+                          <AvaliacaoDaEmpresa
+                            avaliacao={c.data.avaliacao}
+                            busy={busy}
+                            onAvaliar={(nota, motivo) =>
+                              perform(
+                                { action: "rate", id: c.id, nota, motivo: motivo || null },
+                                t(
+                                  "Avaliação salva. As próximas buscas levam em conta o seu gosto.",
+                                ),
+                              )
+                            }
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </>
+      )}
+      {etapa === "abordagem" && campaign && (
+        <>
+          {campaign.status === "draft" &&
+            campaign.search_status === "succeeded" &&
+            candidates.length > 0 && (
+              <Card className="p-5">
+                <p className="text-xs font-medium tracking-widest text-muted-foreground uppercase">
+                  {campaign.name}
+                </p>
+                <h2 className="mt-1 text-lg font-semibold">{t("Preparar a abordagem")}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {t(
+                    "A IA usa o agente escolhido para abrir a conversa e atender as respostas. As proteções do canal continuam valendo.",
+                  )}
+                </p>
+                {!campaign.config && (
+                  <div className="mt-4 space-y-4">
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant={!manual ? "secondary" : "outline"}
+                        onClick={() =>
+                          setManualCampaigns((current) => ({
+                            ...current,
+                            [campaign.id]: false,
+                          }))
+                        }
+                      >
+                        {t("Configurar por conversa")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={manual ? "secondary" : "outline"}
+                        onClick={() =>
+                          setManualCampaigns((current) => ({ ...current, [campaign.id]: true }))
+                        }
+                      >
+                        {t("Usar agente existente / configurar manualmente")}
+                      </Button>
+                    </div>
+                    {!manual && !config.agent_id && data && (
+                      <ProspectingAgentBuilder
+                        key={campaign.id}
+                        campaign={campaign}
+                        config={config}
+                        channels={data.channels}
+                        stages={data.stages}
+                        onCreated={selectCreatedAgent}
+                      />
+                    )}
+                    {!manual && config.agent_id && (
+                      <section
+                        aria-label={t("Agente selecionado")}
+                        className="space-y-2 rounded-xl border bg-muted/20 p-4 text-sm"
+                      >
+                        <p className="font-semibold">
+                          {agents.find((agent) => agent.id === config.agent_id)?.name ??
+                            t("Agente selecionado")}
+                        </p>
+                        <p className="whitespace-pre-wrap text-muted-foreground">
+                          {config.instruction}
+                        </p>
+                        <div className="flex flex-wrap gap-4">
+                          <Link className="underline" href={`/app/ai/agents/${config.agent_id}`}>
+                            {t("Configurações avançadas do agente")}
+                          </Link>
+                          <Link
+                            className="underline"
+                            href={`/app/ai/agents/${config.agent_id}#voice-assistant`}
+                          >
+                            {t("Configurar assistente de voz")}
+                          </Link>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {t(
+                            "Agente pronto. Escolha o ritmo abaixo e inicie quando estiver preparado.",
+                          )}
+                        </p>
+                      </section>
+                    )}
+                  </div>
+                )}
+                {(manual || config.agent_id) && (
+                  <form
+                    className="mt-5 space-y-4"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void perform(
+                        { action: "start", id: campaign.id, config },
+                        t("Campanha iniciada. A primeira abordagem será preparada após um minuto."),
+                      );
+                    }}
+                  >
+                    {campaign.config && (
+                      <p className="text-sm text-muted-foreground">
+                        {t(
+                          "Esta campanha já começou a preparar contatos. Sua configuração foi preservada para retomar com segurança.",
+                        )}
+                      </p>
+                    )}
+                    <fieldset disabled={!!campaign.config} className="space-y-4">
+                      {manual && (
+                        <div className="space-y-4">
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div>
+                              <Label htmlFor="prospecting-agent">{t("Agente de IA")}</Label>
+                              <select
+                                id="prospecting-agent"
+                                className={`${selectClass} mt-1`}
+                                value={config.agent_id}
+                                onChange={(e) => update("agent_id", e.target.value)}
+                                required
+                              >
+                                <option value="">{t("Escolha um agente publicado")}</option>
+                                {agents.map((a) => (
+                                  <option key={a.id} value={a.id}>
+                                    {a.name}
+                                  </option>
+                                ))}
+                              </select>
+                              {config.agent_id && (
+                                <Link
+                                  className="mt-2 block text-xs underline"
+                                  href={`/app/ai/agents/${config.agent_id}`}
+                                >
+                                  {t("Configurações avançadas do agente")}
+                                </Link>
+                              )}
+                            </div>
+                            <div>
+                              <Label htmlFor="prospecting-channel">{t("Conexão de saída")}</Label>
+                              <select
+                                id="prospecting-channel"
+                                className={`${selectClass} mt-1`}
+                                value={config.channel_session_id}
+                                onChange={(e) => update("channel_session_id", e.target.value)}
+                                required
+                              >
+                                <option value="">{t("Escolha uma conexão ativa")}</option>
+                                {data?.channels
+                                  .filter((c) => c.status === "WORKING")
+                                  .map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.display_name ?? c.phone_number ?? c.id}
+                                    </option>
+                                  ))}
+                              </select>
+                              <Link className="text-xs underline" href="/app/connections">
+                                {t("Ver conexões e proteções de envio")}
+                              </Link>
+                            </div>
+                          </div>
+                          <div>
+                            <Label htmlFor="prospecting-pipeline">{t("Funil")}</Label>
+                            <select
+                              id="prospecting-pipeline"
+                              className={`${selectClass} mt-1`}
+                              value={funil}
+                              required
+                              onChange={(e) => {
+                                setConfig((c) => ({
+                                  ...c,
+                                  pipeline_id: e.target.value,
+                                  stage_id: "",
+                                  qualified_stage_id: "",
+                                }));
+                              }}
+                            >
+                              <option value="">{t("Escolha o funil")}</option>
+                              {[
+                                ...new Map(
+                                  data?.stages.map((s) => [s.pipeline_id, s.pipeline_name]),
+                                ).entries(),
+                              ].map(([id, name]) => (
+                                <option key={id} value={id}>
+                                  {name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="grid gap-4 md:grid-cols-2">
+                            {(
+                              [
+                                ["stage_id", "Etapa inicial"],
+                                ["qualified_stage_id", "Etapa de qualificados"],
+                              ] as const
+                            ).map(([field, label]) => (
+                              <div key={field}>
+                                <Label htmlFor={`prospecting-${field}`}>{t(label)}</Label>
+                                <select
+                                  id={`prospecting-${field}`}
+                                  className={`${selectClass} mt-1`}
+                                  required
+                                  value={config[field]}
+                                  onChange={(e) => update(field, e.target.value)}
+                                >
+                                  <option value="">{t("Escolha a etapa")}</option>
+                                  {data?.stages
+                                    .filter((s) => s.pipeline_id === funil)
+                                    .map((s) => (
+                                      <option key={s.id} value={s.id}>
+                                        {s.name}
+                                      </option>
+                                    ))}
+                                </select>
+                              </div>
+                            ))}
+                          </div>
+                          <div>
+                            <Label htmlFor="prospecting-instruction">
+                              {t("O que a IA deve oferecer e como iniciar")}
+                            </Label>
+                            <Textarea
+                              id="prospecting-instruction"
+                              value={config.instruction}
+                              onChange={(e) => update("instruction", e.target.value)}
+                              required
+                              minLength={10}
+                              maxLength={2000}
+                              className="mt-1"
+                              placeholder={t(
+                                "Descreva sua oferta e o objetivo da primeira conversa.",
+                              )}
+                            />
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {t(
+                                "Este texto se soma ao prompt do agente nas conversas desta campanha. Se você mudar o prompt do agente, confira se os dois ainda dizem a mesma coisa.",
+                              )}
+                            </p>
+                          </div>
+                          <div>
+                            <Label htmlFor="prospecting-qualification">
+                              {t("Quando considerar o cliente qualificado")}
+                            </Label>
+                            <Textarea
+                              id="prospecting-qualification"
+                              value={config.qualification}
+                              onChange={(e) => update("qualification", e.target.value)}
+                              required
+                              minLength={10}
+                              maxLength={2000}
+                              className="mt-1"
+                              placeholder={t(
+                                "Ex.: confirmou a necessidade, participa da decisão e deseja conversar sobre a solução.",
+                              )}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="prospecting-daily">{t("Máximo em 24 horas")}</Label>
+                          <Input
+                            id="prospecting-daily"
+                            type="number"
+                            min={1}
+                            max={50}
+                            required
+                            value={config.daily_limit}
+                            onChange={(e) => update("daily_limit", Number(e.target.value))}
+                            className="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="prospecting-spacing">
+                            {t("Intervalo mínimo (minutos)")}
+                          </Label>
+                          <Input
+                            id="prospecting-spacing"
+                            type="number"
+                            min={5}
+                            max={1440}
+                            required
+                            value={config.interval_minutes}
+                            onChange={(e) => update("interval_minutes", Number(e.target.value))}
+                            className="mt-1"
+                          />
+                        </div>
+                      </div>
+                      <fieldset className="space-y-2">
+                        <legend className="text-sm font-medium">
+                          {t("Quando a empresa entra no funil")}
+                        </legend>
+                        <label className="flex items-start gap-2 text-sm">
+                          <input
+                            type="radio"
+                            name="prospecting-funnel-entry"
+                            checked={(config.funnel_entry ?? "on_start") === "on_send"}
+                            onChange={() => update("funnel_entry", "on_send")}
+                            className="mt-1"
+                          />
+                          <span>
+                            {t("Só quando for abordada (recomendado)")}
+                            <span className="block text-xs text-muted-foreground">
+                              {t("O funil mostra só quem já recebeu a primeira mensagem.")}
+                            </span>
+                          </span>
+                        </label>
+                        <label className="flex items-start gap-2 text-sm">
+                          <input
+                            type="radio"
+                            name="prospecting-funnel-entry"
+                            checked={(config.funnel_entry ?? "on_start") === "on_start"}
+                            onChange={() => update("funnel_entry", "on_start")}
+                            className="mt-1"
+                          />
+                          <span>
+                            {t("Todas ao iniciar")}
+                            <span className="block text-xs text-muted-foreground">
+                              {t(
+                                "Contato, negócio e conversa de toda a fila são criados na hora de iniciar.",
+                              )}
+                            </span>
+                          </span>
+                        </label>
+                      </fieldset>
+                      <div>
+                        <Label htmlFor="prospecting-basis">
+                          {t("Referência da avaliação de legítimo interesse")}
+                        </Label>
+                        <Input
+                          id="prospecting-basis"
+                          value={config.legal_basis_ref}
+                          onChange={(e) => update("legal_basis_ref", e.target.value)}
+                          minLength={3}
+                          maxLength={500}
+                          required
+                          className="mt-1"
+                        />
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {t(
+                            "Informe a referência real da avaliação que fundamenta esta prospecção. Isso não registra consentimento dos contatos.",
+                          )}
+                        </p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {(config.funnel_entry ?? "on_start") === "on_send"
+                          ? t(
+                              "Ao iniciar, as empresas com telefone entram na fila. Cada uma entra no funil só quando for abordada. Contatos já existentes são preservados. A fila faz uma primeira abordagem; respostas seguem no Inbox. Uma mensagem já em transmissão pode concluir após a pausa.",
+                            )
+                          : t(
+                              "Ao iniciar, os contatos novos com telefone entram no funil. Contatos já existentes são preservados. A fila faz uma primeira abordagem; respostas seguem no Inbox. Uma mensagem já em transmissão pode concluir após a pausa.",
+                            )}
+                      </p>
+                    </fieldset>
+                    <Button
+                      type="submit"
+                      disabled={
+                        busy ||
+                        !agents.length ||
+                        !data?.channels.some((c) => c.status === "WORKING")
+                      }
+                    >
+                      {t("Iniciar abordagens com IA")}
+                    </Button>
+                  </form>
+                )}
+              </Card>
+            )}
+        </>
+      )}
+      {etapa === "abordagem" && !(campaign && noRascunho && candidates.length > 0) && (
+        <Card className="flex flex-col gap-3 p-6">
+          <h2 className="text-lg font-semibold">
+            {!campaign
+              ? t("Nenhuma campanha ainda")
+              : campaign.config
+                ? t("Esta campanha já tem a abordagem configurada")
+                : campaign.search_status !== "succeeded"
+                  ? t("A busca desta campanha ainda não terminou")
+                  : t("Esta campanha não tem empresas para abordar")}
+          </h2>
+          {campaign && (
+            <p className="text-sm text-muted-foreground">
+              {campaign.name} · {t(labels[campaign.status] ?? campaign.status)}
+              {campaign.config
+                ? ` · ${t("Ritmo:")} ${campaign.config.daily_limit} ${t("abordagens em 24 horas, com pelo menos")} ${campaign.config.interval_minutes} ${t("minutos entre elas.")}`
+                : ""}
+            </p>
+          )}
+          <p className="text-sm text-muted-foreground">
+            {!campaign || campaign.search_status !== "succeeded" || candidates.length === 0
+              ? t("Encontre e aprove empresas na etapa 1; depois prepare a campanha na etapa 2.")
+              : t(
+                  "A fila, as respostas e os qualificados estão na etapa 2. Pausar e retomar também.",
+                )}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href={hrefDaEtapa("empresas", campanhaNaUrl)}>{t("Ir para a etapa 1")}</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href={hrefDaEtapa("campanhas", campanhaNaUrl)}>{t("Ir para a etapa 2")}</Link>
+            </Button>
           </div>
         </Card>
       )}

@@ -3089,6 +3089,18 @@ de contrato; pareamento real por código ainda requer confirmação no celular.
 - QA local com Supabase e provedor de teste: entrada assinada, resposta manual, deduplicação, assinatura inválida, conta incorreta e concorrência de registro aprovadas.
 - QA visual local e na instalação self-host concluída; app/worker `788b0fe` saudáveis e testes de webhook do provedor aprovados. DM real e pareamento confirmado no celular permanecem pendentes.
 
+## Prospecção em três etapas — 2026-11-02 (fork Genuine)
+
+[P1] A tela única de `/app/prospecting` virou uma porta de entrada (texto curto e três botões) e três telas: etapa 1 `/app/prospecting/empresas` (Encontrar empresas, O que a prospecção aprendeu com você, Decisor pelo quadro de sócios, Acompanhar resultados da busca), etapa 2 `/app/prospecting/campanhas` (Suas campanhas, Preparar a campanha, Acompanhar resultados da abordagem) e etapa 3 `/app/prospecting/abordagem` (Preparar a abordagem). Toda etapa tem o seletor 1 · 2 · 3 e o caminho de volta; a campanha escolhida viaja em `?campanha=`. Aprovado pelo dono sobre protótipo navegável no tema escuro.
+
+| Caso | Prioridade | Estado |
+| --- | --- | --- |
+| A porta tem título, texto e três botões, cada um abrindo a sua etapa com o bloco que a nomeia; o seletor marca a etapa atual | `[P1]` | `tests/e2e/prospeccao-em-etapas.spec.ts` (parte 6 do CI, tema escuro, capturas em `evidence/prospeccao-em-etapas/` saem no artefato `evidencia-parte-6`); `tests/unit/prospeccao-em-etapas.test.tsx` mede a porta, os blocos de cada etapa e a campanha na URL |
+| Quem não é administrador da organização não entra em nenhuma das quatro telas | `[P1]` | mesma spec; a regra é a da tela única (`_porta.ts`) |
+| A conversa para configurar o agente continua inteira na etapa 3, inclusive a troca de campanha com texto não salvo | `[P1]` | `tests/unit/prospecting-agent-dialog.test.tsx`, agora renderizando `etapa="abordagem"` e trocando pelo seletor |
+
+Não medido nesta máquina (sem Docker nem Supabase local): as quatro telas pela tela com banco de verdade. Fica com o `e2e` do CI; as capturas devem ser baixadas do artefato e commitadas aqui quando a rodada passar.
+
 ## Prospecção nativa — 2026-09-15
 
 [P0] Validado no navegador, com Next em modo produção e Supabase local: resultados comerciais semeados → escolher agente publicado, conexão, funil e duas etapas → definir oferta, critérios e ritmo → iniciar → ver contato, negócio e conversa criados → pausar a fila. Consulta do banco confirmou `paused/queued`, os três vínculos e zero mensagens. A busca paga e a entrega a pessoas reais não foram executadas neste QA. A Prospecção tem entrada direta na seção CRM do menu lateral para administradores.
