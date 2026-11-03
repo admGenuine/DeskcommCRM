@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { apiClient } from "@/lib/api/client";
 import { useT } from "@/hooks/i18n/useT";
 import { ETAPAS, NUMERO_DA_ETAPA, etapaParaContinuar, hrefDaEtapa, type Etapa } from "./_etapas";
-import { descricaoDaEtapa, nomeDaEtapa } from "./_etapas-ui";
+import { nomeDaEtapa } from "./_etapas-ui";
 
 type CampanhaDaPorta = {
   id: string;
@@ -47,9 +47,11 @@ function blocosDaEtapa(t: (texto: string) => string, etapa: Etapa): string[] {
         t("Acompanhar resultados"),
       ];
     case "campanhas":
-      return [t("Suas campanhas"), t("Preparar a campanha"), t("Acompanhar resultados")];
-    case "abordagem":
-      return [t("Preparar a abordagem")];
+      return [
+        t("Suas campanhas"),
+        t("Acompanhar resultados"),
+        t("Campanha aberta: Preparar a campanha e Abordagem"),
+      ];
   }
 }
 
@@ -58,9 +60,9 @@ function resumoDaEtapa(t: (texto: string) => string, etapa: Etapa): string {
     case "empresas":
       return t("Escolha o público e a região, encontre empresas e veja quem foi aprovado.");
     case "campanhas":
-      return t("Organize as empresas aprovadas em campanhas e acompanhe a fila e as respostas.");
-    case "abordagem":
-      return t("Escolha o agente, o que ele precisa confirmar, e inicie as abordagens com IA.");
+      return t(
+        "Acompanhe a fila e as respostas. Abra uma campanha para preparar e configurar a abordagem com IA.",
+      );
   }
 }
 
@@ -70,13 +72,11 @@ function rotuloDoBotao(t: (texto: string) => string, etapa: Etapa): string {
       return t("Abrir prospecção");
     case "campanhas":
       return t("Abrir campanhas");
-    case "abordagem":
-      return t("Abrir abordagem");
   }
 }
 
 /**
- * A porta de entrada da Prospecção: um texto curto e três botões, um por etapa.
+ * A porta de entrada da Prospecção: um texto curto e dois botões, um por etapa.
  *
  * A faixa "Onde você parou" lê a mesma consulta das etapas e aponta para a
  * etapa em que a campanha mais recente está (`etapaParaContinuar`). Sem
@@ -105,12 +105,12 @@ export function HubDaProspeccao() {
         <h1 className="text-4xl font-semibold tracking-tight">{t("Prospecção")}</h1>
         <p className="text-base text-muted-foreground">
           {t(
-            "Encontre empresas, prepare a campanha e deixe a IA abrir a conversa. São três etapas, nesta ordem. Cada uma tem a sua tela, e você volta para cá quando quiser.",
+            "Encontre empresas, prepare a campanha e deixe a IA abrir a conversa. São duas etapas, nesta ordem. Cada uma tem a sua tela, e você volta para cá quando quiser.",
           )}
         </p>
       </header>
 
-      <div className="grid gap-5 md:grid-cols-3">
+      <div className="grid gap-5 md:grid-cols-2">
         {ETAPAS.map((etapa) => {
           const blocos = blocosDaEtapa(t, etapa);
           return (

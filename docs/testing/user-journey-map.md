@@ -3089,7 +3089,24 @@ de contrato; pareamento real por código ainda requer confirmação no celular.
 - QA local com Supabase e provedor de teste: entrada assinada, resposta manual, deduplicação, assinatura inválida, conta incorreta e concorrência de registro aprovadas.
 - QA visual local e na instalação self-host concluída; app/worker `788b0fe` saudáveis e testes de webhook do provedor aprovados. DM real e pareamento confirmado no celular permanecem pendentes.
 
+## Campanha aberta e etapa 2 com mapa de bairros — 2026-11-03 (fork Genuine)
+
+[P1] Segundo ajuste pedido pelo dono, aprovado sobre protótipo navegável no tema escuro, no desenho do Radar Curitiba (a ferramenta de prospecção por bairro da Genuine). A porta passa a ter dois botões; a etapa 2 (`/app/prospecting/campanhas`) fica só com Suas campanhas (filtro Todas / Rascunho / Andamento / Encerradas, cada campanha com o botão Abrir) e Acompanhar resultados (análise das empresas, nota, Ficar só com as melhores, tabela com Abordar, Empresa, Nota, Progresso, Conversa e Sua avaliação). Abrir leva à campanha aberta (`/app/prospecting/campanhas/<id>`), com cabeçalho de três números e as abas Preparar a campanha (o cartão de preparar e, embaixo, o mapa de bairros pintado pela quantidade de empresas, o ranking de bairros e a lista agrupada por bairro com o botão Vai abordar / + Abordar) e Abordagem (a antiga etapa 3). O bairro é lido do endereço (`lib/prospecting/mapa/bairro.ts`); o desenho só existe para Curitiba (`curitiba.ts`, 75 bairros); em outra cidade fica o ranking. `/app/prospecting/abordagem` só redireciona.
+
+| Caso | Prioridade | Estado |
+| --- | --- | --- |
+| A porta tem dois botões; cada etapa abre com o bloco que a nomeia e o seletor 1 · 2 marca a atual | `[P1]` | `tests/e2e/prospeccao-em-etapas.spec.ts` (parte 6 do CI, tema escuro, capturas em `evidence/prospeccao-em-etapas/` saem no artefato `evidencia-parte-6`); `tests/unit/prospeccao-em-etapas.test.tsx` |
+| Etapa 2 sem Preparar a campanha; a tabela sem Informações e Sinais do site; o botão Abrir de cada campanha leva à rota própria; o filtro agrupa por situação | `[P1]` | `tests/unit/prospeccao-em-etapas.test.tsx` |
+| Campanha aberta, aba Preparar: cartão de preparar, as empresas com bairro lido do endereço, contatos, mapa de Curitiba e o botão de abordar chamando a mesma seleção da fila | `[P1]` | `tests/unit/prospeccao-em-etapas.test.tsx`; o leitor de bairro em `lib/prospecting/mapa/bairro.test.ts` (formato do Maps e do Mercado, apelidos, nome oficial) |
+| Campanha aberta, aba Abordagem: a conversa de configuração do agente inteira, inclusive a troca de campanha com texto não salvo (trocar é trocar de rota) | `[P1]` | `tests/unit/prospecting-agent-dialog.test.tsx` |
+| Endereço de campanha que não existe não cai na mais recente: diz que não achou e aponta a etapa 2 | `[P1]` | `tests/unit/prospeccao-em-etapas.test.tsx`; a mesma spec e2e, com banco fresco |
+| Quem não é administrador não entra em nenhuma das telas, a de detalhe inclusive | `[P1]` | mesma spec e2e (`_porta.ts`) |
+
+Não medido nesta máquina (sem Docker nem Supabase local): as telas com banco de verdade, e a campanha aberta COM empresas pela tela (o banco fresco do CI não tem campanha; a prova dessa tela é por unidade). As capturas devem ser baixadas do artefato e commitadas aqui quando a rodada passar.
+
 ## Prospecção em três etapas — 2026-11-02 (fork Genuine)
+
+> Superado em 2026-11-03 pela seção acima: a etapa 3 virou a aba Abordagem da campanha aberta. O que segue descreve o estado entre as duas entregas.
 
 [P1] A tela única de `/app/prospecting` virou uma porta de entrada (texto curto e três botões) e três telas: etapa 1 `/app/prospecting/empresas` (Encontrar empresas, O que a prospecção aprendeu com você, Decisor pelo quadro de sócios, Acompanhar resultados da busca), etapa 2 `/app/prospecting/campanhas` (Suas campanhas, Preparar a campanha, Acompanhar resultados da abordagem) e etapa 3 `/app/prospecting/abordagem` (Preparar a abordagem). Toda etapa tem o seletor 1 · 2 · 3 e o caminho de volta; a campanha escolhida viaja em `?campanha=`. Aprovado pelo dono sobre protótipo navegável no tema escuro.
 

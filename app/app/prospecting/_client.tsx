@@ -1,7 +1,8 @@
 "use client";
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { ArrowUpRight } from "@phosphor-icons/react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { randomId } from "@/lib/random-id";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -28,8 +29,16 @@ import type { Decisor } from "@/lib/prospecting/mercado/socios";
 import { pontuar } from "@/lib/prospecting/score";
 import { passaNoFiltro, type Filtro } from "./_filtro";
 import { MercadoForm } from "./_mercado";
-import { PARAMETRO_DA_CAMPANHA, hrefDaEtapa, type Etapa } from "./_etapas";
-import { CabecalhoDaEtapa } from "./_etapas-ui";
+import {
+  PARAMETRO_DA_CAMPANHA,
+  hrefDaCampanha,
+  hrefDaEtapa,
+  type AbaDaCampanha,
+  type Tela,
+} from "./_etapas";
+import { CabecalhoDaCampanha, CabecalhoDaEtapa } from "./_etapas-ui";
+import { EmpresasDaCampanha, bairroDaEmpresa, cidadeDaCampanha } from "./_empresas-da-campanha";
+import { SEM_BAIRRO, contarPorBairro } from "@/lib/prospecting/mapa/bairro";
 import type { PerfilAprendido } from "@/lib/prospecting/aprendizado";
 import type { ProspectingAgentSetupInput } from "@/lib/prospecting/agent-setup-schema";
 
@@ -100,6 +109,15 @@ const labels: Record<string, string> = {
   qualified: "Qualificado",
 };
 const selectClass = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm";
+/** Os grupos da lista "Suas campanhas" (etapa 2): um filtro segmentado, como no Radar. */
+const GRUPOS_DE_CAMPANHAS = ["todas", "rascunho", "andamento", "encerradas"] as const;
+type GrupoDeCampanhas = (typeof GRUPOS_DE_CAMPANHAS)[number];
+const ROTULO_DO_GRUPO: Record<GrupoDeCampanhas, string> = {
+  todas: "Todas",
+  rascunho: "Rascunho",
+  andamento: "Andamento",
+  encerradas: "Encerradas",
+};
 const emptyConfig: CampaignConfig = {
   agent_id: "",
   channel_session_id: "",
@@ -115,19 +133,30 @@ const emptyConfig: CampaignConfig = {
   funnel_entry: "on_send",
 };
 /**
- * A tela de uma etapa da Prospecção (`_etapas.ts`). A lógica é uma só para as
- * três; `etapa` decide o que esta rota mostra:
+ * A tela de uma etapa da Prospecção, ou da campanha aberta (`_etapas.ts`). A
+ * lógica é uma só; `etapa` decide o que esta rota mostra:
  *
  *   - `empresas`  : encontrar empresas, perfil aprendido, decisor pelo quadro de
  *                   sócios e os resultados da busca (encontrados / aprovados / recusados);
- *   - `campanhas` : a lista de campanhas, preparar a campanha (referência, ritmo,
- *                   pausar e retomar) e os resultados da abordagem (fila / responderam /
- *                   qualificados);
- *   - `abordagem` : preparar a abordagem da campanha escolhida e iniciá-la.
+ *   - `campanhas` : a lista de campanhas (cada uma com o botão Abrir) e os
+ *                   resultados da abordagem (fila / responderam / qualificados), com a
+ *                   análise das empresas, a nota e a avaliação;
+ *   - `campanha`  : a campanha aberta (`campanhaId` vem do caminho), em duas abas:
+ *                   `preparar` (nome, referência, ritmo e as empresas achadas, com o
+ *                   mapa de bairros) e `abordagem` (o agente, o ritmo e o iniciar).
  *
- * A campanha escolhida viaja na URL (`?campanha=`), para a troca de etapa não a perder.
+ * Entre as etapas a campanha escolhida viaja na URL (`?campanha=`); na campanha
+ * aberta ela é o próprio caminho, e trocar de campanha troca de rota.
  */
-export function ProspectingClient({ etapa }: { readonly etapa: Etapa }) {
+export function ProspectingClient({
+  etapa,
+  campanhaId = null,
+  aba = "preparar",
+}: {
+  readonly etapa: Tela;
+  readonly campanhaId?: string | null;
+  readonly aba?: AbaDaCampanha;
+}) {
   const t = useT();
   const query = useQuery({
     queryKey: ["prospecting"],
@@ -143,7 +172,19 @@ export function ProspectingClient({ etapa }: { readonly etapa: Etapa }) {
   const [settings, setSettings] = useState(false);
   const busca = useSearchParams();
   const caminho = usePathname();
-  const [selected, setSelected] = useState<string | null>(() => busca.get(PARAMETRO_DA_CAMPANHA));
+  const router = useRouter();
+  const [selected, setSelected] = useState<string | null>(
+    () => campanhaId ?? busca.get(PARAMETRO_DA_CAMPANHA),
+  );
+  // Na campanha aberta a campanha é o caminho: quando a rota muda, a escolha acompanha
+  // (estado derivado da prop durante a renderização, sem efeito).
+  const [campanhaDaRota, setCampanhaDaRota] = useState(campanhaId);
+  if (campanhaId !== campanhaDaRota) {
+    setCampanhaDaRota(campanhaId);
+    if (campanhaId) setSelected(campanhaId);
+  }
+  // Etapa 2: qual grupo da lista de campanhas está à mostra.
+  const [grupoDeCampanhas, setGrupoDeCampanhas] = useState<GrupoDeCampanhas>("todas");
   /**
    * Escolher a campanha grava na URL, para a etapa seguinte abrir na mesma.
    * `history.replaceState` e não `router.replace`, pela razão medida na Agenda
@@ -153,6 +194,11 @@ export function ProspectingClient({ etapa }: { readonly etapa: Etapa }) {
    */
   function escolherCampanha(id: string | null) {
     setSelected(id);
+    if (etapa === "campanha") {
+      // A campanha aberta é uma rota por campanha: trocar é ir para a outra, na mesma aba.
+      if (id) router.replace(hrefDaCampanha(id, aba));
+      return;
+    }
     const parametros = new URLSearchParams(busca.toString());
     if (id) parametros.set(PARAMETRO_DA_CAMPANHA, id);
     else parametros.delete(PARAMETRO_DA_CAMPANHA);
@@ -182,7 +228,10 @@ export function ProspectingClient({ etapa }: { readonly etapa: Etapa }) {
     daily_limit: number;
     interval_minutes: number;
   } | null>(null);
-  const campaign = data?.campaigns.find((c) => c.id === selected) ?? data?.campaigns[0];
+  // Nas etapas, sem escolha vale a campanha mais recente; na campanha aberta, só a do caminho.
+  const campaign =
+    data?.campaigns.find((c) => c.id === selected) ??
+    (etapa === "campanha" ? undefined : data?.campaigns[0]);
   // A stored config is frozen by activation; unsaved choices belong to one campaign.
   const config = campaign?.config ?? (campaign && campaignDrafts[campaign.id]) ?? emptyConfig;
   const funil = config.pipeline_id;
@@ -428,6 +477,24 @@ export function ProspectingClient({ etapa }: { readonly etapa: Etapa }) {
       ? ["fila", "responderam", "qualificados"]
       : ["todos", "aprovados", "recusados"];
   const campanhaNaUrl = campaign?.id ?? null;
+  // Os três números do cabeçalho da campanha aberta.
+  const aprovadasDaCampanha = candidates.filter((c) => c.status !== "skipped");
+  const marcadasDaCampanha = aprovadasDaCampanha.filter((c) => c.selected !== false);
+  const cidadeDaCampanhaAberta = cidadeDaCampanha(candidates, campaign?.search?.location);
+  const bairrosDaCampanha = contarPorBairro(candidates, (c) =>
+    bairroDaEmpresa(c, cidadeDaCampanhaAberta),
+  ).filter((b) => b.bairro !== SEM_BAIRRO).length;
+  const grupoDaCampanha = (c: Campaign): Exclude<GrupoDeCampanhas, "todas"> =>
+    c.status === "running" || c.status === "paused"
+      ? "andamento"
+      : c.status === "completed"
+        ? "encerradas"
+        : "rascunho";
+  const campanhasDoGrupo = (data?.campaigns ?? []).filter(
+    (c) => grupoDeCampanhas === "todas" || grupoDaCampanha(c) === grupoDeCampanhas,
+  );
+  const contaDaCampanha = (id: string, tipo: Filtro) =>
+    (data?.candidates ?? []).filter((c) => c.campaign_id === id && passaNoFiltro(c, tipo)).length;
   const filtrar = (tipo: Filtro, motivo?: string) => {
     setFiltro({ tipo, motivo });
     resultados.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -439,38 +506,33 @@ export function ProspectingClient({ etapa }: { readonly etapa: Etapa }) {
   );
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 md:p-8">
-      <CabecalhoDaEtapa
-        etapa={etapa}
-        campanhaId={campanhaNaUrl}
-        acao={
-          etapa === "empresas" ? (
-            <Button variant="outline" onClick={() => setSettings((s) => !s)}>
-              {t("Configurar busca")}
-            </Button>
-          ) : etapa === "abordagem" && data && data.campaigns.length > 0 ? (
-            // A etapa 3 não tem a lista de campanhas (ela é da etapa 2); trocar de
-            // campanha aqui é um seletor, para a conversa de configuração de cada
-            // uma continuar na mesma tela, com o texto ainda não salvo preservado.
-            <div className="flex items-center gap-2">
-              <Label htmlFor="prospecting-campanha" className="text-sm text-muted-foreground">
-                {t("Campanha")}
-              </Label>
-              <select
-                id="prospecting-campanha"
-                className={`${selectClass} w-auto max-w-72`}
-                value={campaign?.id ?? ""}
-                onChange={(e) => escolherCampanha(e.target.value || null)}
-              >
-                {data.campaigns.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null
-        }
-      />
+      {etapa === "campanha" ? (
+        <CabecalhoDaCampanha
+          campanha={campaign ?? null}
+          campanhas={data?.campaigns ?? []}
+          aba={aba}
+          situacao={campaign ? t(labels[campaign.status] ?? campaign.status) : ""}
+          busca={campaign ? t(labels[campaign.search_status] ?? campaign.search_status) : ""}
+          numeros={{
+            aprovadas: aprovadasDaCampanha.length,
+            marcadas: marcadasDaCampanha.length,
+            bairros: bairrosDaCampanha,
+          }}
+          onTrocar={(id) => escolherCampanha(id)}
+        />
+      ) : (
+        <CabecalhoDaEtapa
+          etapa={etapa}
+          campanhaId={campanhaNaUrl}
+          acao={
+            etapa === "empresas" ? (
+              <Button variant="outline" onClick={() => setSettings((s) => !s)}>
+                {t("Configurar busca")}
+              </Button>
+            ) : null
+          }
+        />
+      )}
       {(error || query.error) && (
         <div
           role="alert"
@@ -747,7 +809,7 @@ export function ProspectingClient({ etapa }: { readonly etapa: Etapa }) {
                     <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
                       <p className="text-sm text-muted-foreground">
                         {t(
-                          "As aprovadas seguem para a campanha. A abordagem só começa na etapa 3.",
+                          "As aprovadas seguem para a campanha. A abordagem só começa na campanha aberta, pela etapa 2.",
                         )}
                       </p>
                       <Button asChild>
@@ -1130,606 +1192,790 @@ export function ProspectingClient({ etapa }: { readonly etapa: Etapa }) {
         </>
       )}
       {etapa === "campanhas" && (
-        <>
-          <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-            <aside className="flex flex-col gap-5">
-              <section>
-                <h2 className="mb-3 text-sm font-semibold">{t("Suas campanhas")}</h2>
-                <div className="space-y-2">
-                  {data?.campaigns.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => {
-                        escolherCampanha(c.id);
-                        setFiltro({ tipo: "todos" });
-                        setNotice(null);
-                        // A confirmação de exclusão vale para UMA campanha: ao trocar, ela some.
-                        setConfirmandoExclusao(false);
-                        setMostrarDesmarcadas(false);
-                      }}
-                      className={`w-full rounded-lg border p-3 text-left ${campaign?.id === c.id ? "border-primary bg-primary/5" : "bg-card"}`}
-                    >
-                      <span className="block text-sm font-medium">
-                        {c.name}
-                        {c.referencia_em && (
-                          <span className="ml-2 text-xs font-normal text-muted-foreground">
-                            {t("Referência")}
-                          </span>
-                        )}
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,430px)_1fr]">
+          <section
+            aria-labelledby="suas-campanhas"
+            className="flex flex-col gap-3.5 rounded-xl border bg-card p-4"
+          >
+            <div className="flex items-baseline justify-between gap-3">
+              <h2 id="suas-campanhas" className="text-base font-medium">
+                {t("Suas campanhas")}
+              </h2>
+              <span className="text-xs text-text-subtle">
+                {data?.campaigns.length ?? 0}{" "}
+                {data?.campaigns.length === 1 ? t("campanha") : t("campanhas")}
+                {" · "}
+                {
+                  (data?.campaigns ?? []).filter((c) => grupoDaCampanha(c) === "andamento").length
+                }{" "}
+                {t("em andamento")}
+              </span>
+            </div>
+            <div
+              role="group"
+              aria-label={t("Filtrar campanhas")}
+              className="flex flex-wrap gap-0.5 rounded-full bg-surface-elevated p-1"
+            >
+              {GRUPOS_DE_CAMPANHAS.map((grupo) => {
+                const ativo = grupoDeCampanhas === grupo;
+                const quantos =
+                  grupo === "todas"
+                    ? (data?.campaigns.length ?? 0)
+                    : (data?.campaigns ?? []).filter((c) => grupoDaCampanha(c) === grupo).length;
+                return (
+                  <button
+                    key={grupo}
+                    type="button"
+                    aria-pressed={ativo}
+                    onClick={() => setGrupoDeCampanhas(grupo)}
+                    className={`flex-1 rounded-full px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
+                      ativo
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {t(ROTULO_DO_GRUPO[grupo])}
+                    <span className="ml-1.5 font-normal opacity-65">{quantos}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex flex-col gap-2">
+              {campanhasDoGrupo.map((c) => {
+                const atual = campaign?.id === c.id;
+                const grupo = grupoDaCampanha(c);
+                return (
+                  <article
+                    key={c.id}
+                    aria-label={c.name}
+                    className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1.5 rounded-xl border p-4 ${
+                      atual ? "border-primary bg-surface-elevated" : "bg-card"
+                    }`}
+                  >
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-wide uppercase ${
+                          grupo === "andamento"
+                            ? "bg-primary text-primary-foreground"
+                            : grupo === "rascunho"
+                              ? "border border-foreground"
+                              : "border text-muted-foreground"
+                        }`}
+                      >
+                        {t(labels[c.status] ?? c.status)}
                       </span>
-                      <span className="mt-1 block text-xs text-muted-foreground">
-                        {t(labels[c.status] ?? c.status)} · {c.result_count} {t("empresas")}
+                      <span className="text-base font-medium break-words">{c.name}</span>
+                      {c.referencia_em && (
+                        <span className="text-xs text-muted-foreground">{t("Referência")}</span>
+                      )}
+                    </div>
+                    <Button
+                      asChild
+                      size="sm"
+                      variant={atual ? "default" : "outline"}
+                      className="col-start-2 row-span-2 self-start rounded-full"
+                    >
+                      <Link
+                        href={hrefDaCampanha(c.id)}
+                        aria-label={`${t("Abrir a campanha")} ${c.name}`}
+                      >
+                        {t("Abrir")}
+                        <ArrowUpRight size={14} aria-hidden />
+                      </Link>
+                    </Button>
+                    <div className="col-start-1 flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
+                      <span>
+                        {c.search?.location ? `${c.search.location} · ` : ""}
+                        {t(labels[c.search_status] ?? c.search_status)}
+                        {" · "}
+                        {c.result_count} {t("empresas")}
                         {recusadasPorCampanha[c.id]
                           ? ` · ${recusadasPorCampanha[c.id]} ${recusadasPorCampanha[c.id] === 1 ? t("recusada") : t("recusadas")}`
                           : ""}
+                        {c.config &&
+                          ` · ${t("ritmo")} ${c.config.daily_limit} ${t("em 24 h")}, ${c.config.interval_minutes} ${t("min entre elas")}`}
                       </span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-              <p className="text-xs text-muted-foreground">
-                {t("Campanha nova nasce na etapa 1, quando você aprova empresas de uma busca.")}
-              </p>
-            </aside>
-            <div className="min-w-0 space-y-5">
-              {!campaign && (
-                <Card className="flex min-h-80 flex-col items-center justify-center gap-3 p-8 text-center">
-                  <h2 className="text-xl font-semibold">{t("Nenhuma campanha ainda")}</h2>
-                  <p className="max-w-md text-sm text-muted-foreground">
-                    {t(
-                      "Encontre empresas na etapa 1. Cada busca aprovada aparece aqui como uma campanha.",
-                    )}
-                  </p>
-                  <Button asChild variant="outline">
-                    <Link href={hrefDaEtapa("empresas", null)}>{t("Ir para a etapa 1")}</Link>
-                  </Button>
-                </Card>
-              )}
-              {campaign && (
-                <Card className="p-5">
-                  <h2 className="text-lg font-semibold">{t("Preparar a campanha")}</h2>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-base font-semibold">{campaign.name}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {t(labels[campaign.search_status] ?? campaign.search_status)}
-                        {campaign.cost_usd !== null
-                          ? ` · US$ ${Number(campaign.cost_usd).toFixed(2)}`
-                          : ""}
-                      </p>
-                    </div>
-                    <Badge variant="outline">{t(labels[campaign.status] ?? campaign.status)}</Badge>
-                  </div>
-                  {campaign.error &&
-                    // Busca concluída e campanha ainda em rascunho: o campo traz o
-                    // AVISO da busca (já em outra campanha, busca interrompida), não
-                    // uma falha. Ver `avisoDaBusca` em lib/prospecting/store.ts.
-                    (campaign.status === "draft" && campaign.search_status === "succeeded" ? (
-                      <p className="mt-4 rounded-md border p-3 text-sm text-muted-foreground">
-                        {campaign.error}
-                      </p>
-                    ) : (
-                      <p role="alert" className="mt-4 rounded-md bg-destructive/10 p-3 text-sm">
-                        {campaign.error}
-                      </p>
-                    ))}
-                  {campaign.search_status === "succeeded" && (
-                    <ReferenciaDaCampanha
-                      referencia={!!campaign.referencia_em}
-                      motivo={campaign.referencia_motivo}
-                      busy={busy}
-                      onMarcar={(ativa, motivo) =>
-                        perform(
-                          { action: "reference", id: campaign.id, ativa, motivo: motivo || null },
-                          ativa
-                            ? t("Campanha marcada como referência do perfil ideal.")
-                            : t("A campanha deixou de ser referência."),
-                        )
-                      }
-                    />
-                  )}
-                  {campaign.skipped_count > 0 && (
-                    <p className="mt-3 text-xs text-muted-foreground">
-                      {campaign.skipped_count}{" "}
-                      {t("resultados repetidos ou indisponíveis foram desconsiderados.")}
-                    </p>
-                  )}
-                  {campaign.config && (
-                    <>
-                      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-                        <p className="text-sm text-muted-foreground">
-                          {t("Ritmo:")} {campaign.config.daily_limit}{" "}
-                          {t("abordagens em 24 horas, com pelo menos")}{" "}
-                          {campaign.config.interval_minutes} {t("minutos entre elas.")}
-                        </p>
-                        {campaign.status === "running" ? (
-                          <Button
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() =>
-                              perform(
-                                { action: "pause", id: campaign.id },
-                                t("Novas abordagens pausadas."),
-                              )
-                            }
-                          >
-                            {t("Pausar abordagens")}
-                          </Button>
-                        ) : campaign.status === "paused" ? (
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              variant="outline"
-                              disabled={busy}
-                              onClick={() => alternarEdicaoDoRitmo(campaign)}
-                            >
-                              {t("Editar ritmo")}
-                            </Button>
-                            <Button
-                              disabled={busy}
-                              onClick={() =>
-                                perform(
-                                  { action: "resume", id: campaign.id },
-                                  t("Campanha retomada."),
-                                )
-                              }
-                            >
-                              {t("Retomar fila")}
-                            </Button>
-                          </div>
-                        ) : null}
-                      </div>
-                      {campaign.status === "paused" && ritmo?.campaignId === campaign.id && (
-                        <form
-                          className="mt-4 space-y-3 rounded-md border p-4"
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            void salvarRitmo();
-                          }}
-                        >
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <Label htmlFor="prospecting-pace-daily">
-                                {t("Máximo em 24 horas")}
-                              </Label>
-                              <Input
-                                id="prospecting-pace-daily"
-                                type="number"
-                                min={1}
-                                max={50}
-                                required
-                                value={ritmo.daily_limit}
-                                onChange={(e) =>
-                                  setRitmo({ ...ritmo, daily_limit: Number(e.target.value) })
-                                }
-                                className="mt-1"
-                              />
-                            </div>
-                            <div>
-                              <Label htmlFor="prospecting-pace-spacing">
-                                {t("Intervalo mínimo (minutos)")}
-                              </Label>
-                              <Input
-                                id="prospecting-pace-spacing"
-                                type="number"
-                                min={5}
-                                max={1440}
-                                required
-                                value={ritmo.interval_minutes}
-                                onChange={(e) =>
-                                  setRitmo({ ...ritmo, interval_minutes: Number(e.target.value) })
-                                }
-                                className="mt-1"
-                              />
-                            </div>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {t(
-                              "Só dá para ajustar com a campanha pausada. Ao retomar, o próximo envio já usa o ritmo novo. Limite de 1 a 50 por dia e intervalo de 5 a 1440 minutos.",
-                            )}
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            <Button type="submit" disabled={busy || !ritmoValido}>
-                              {t("Salvar ritmo")}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              disabled={busy}
-                              onClick={() => setRitmo(null)}
-                            >
-                              {t("Cancelar")}
-                            </Button>
-                          </div>
-                        </form>
-                      )}
-                    </>
-                  )}
-                  {noRascunho && candidates.length > 0 && !campaign.config && (
-                    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-                      <p className="text-sm text-muted-foreground">
-                        {t("As empresas marcadas entram na fila quando a abordagem começar.")}
-                      </p>
-                      <Button asChild>
-                        <Link href={hrefDaEtapa("abordagem", campaign.id)}>
-                          {t("Preparar a abordagem")}
-                        </Link>
-                      </Button>
-                    </div>
-                  )}
-                </Card>
-              )}
-            </div>
-          </div>
-          {campaign && candidates.length > 0 && (
-            <Card ref={resultados} className="scroll-mt-4 overflow-hidden">
-              <div className="border-b p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-semibold">{t("Acompanhar resultados")}</h2>
-                    <p className="text-sm text-muted-foreground">
-                      {t(
-                        "Encontrado é diferente de qualificado. A qualificação depende do que for confirmado na conversa.",
-                      )}
-                    </p>
-                  </div>
-                  {canSelect && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        {noRascunho
-                          ? t(
-                              "Somente as empresas marcadas entram na fila ao iniciar as abordagens.",
-                            )
-                          : t(
-                              "Com a campanha pausada, marque ou desmarque as empresas que ainda estão na fila. Quem já foi abordado não muda.",
-                            )}
+                      <span className="flex flex-wrap gap-1">
+                        {(["fila", "responderam", "qualificados"] as const).map((tipo) => (
+                          <span key={tipo} className="rounded-md bg-muted px-2 py-0.5">
+                            {rotulosDosFiltros[tipo]} {contaDaCampanha(c.id, tipo)}
+                          </span>
+                        ))}
                       </span>
-                      <Button
+                    </div>
+                    <div className="col-span-2 mt-1 flex flex-wrap items-center gap-1.5">
+                      <button
                         type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={busy || elegiveis.length === 0 || allSelected}
-                        onClick={() =>
-                          setSelection(
-                            elegiveis.map((c) => c.id),
-                            true,
-                          )
-                        }
+                        aria-pressed={atual}
+                        onClick={() => {
+                          escolherCampanha(c.id);
+                          setFiltro({ tipo: "todos" });
+                          setNotice(null);
+                          // A confirmação de exclusão vale para UMA campanha: ao trocar, ela some.
+                          setConfirmandoExclusao(false);
+                          setMostrarDesmarcadas(false);
+                        }}
+                        className={`inline-flex min-h-8 items-center rounded-full border px-3 text-xs ${
+                          atual
+                            ? "border-primary text-foreground"
+                            : "text-muted-foreground hover:bg-muted"
+                        }`}
                       >
-                        {t("Marcar todas")}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={busy || noneSelected}
-                        onClick={() =>
-                          setSelection(
-                            elegiveis.map((c) => c.id),
-                            false,
-                          )
-                        }
-                      >
-                        {t("Desmarcar todas")}
-                      </Button>
-                      {desmarcadas.length > 0 && (
+                        {atual ? `✓ ${t("Mostrando resultados")}` : t("Ver resultados")}
+                      </button>
+                      {c.status === "running" && (
                         <button
                           type="button"
-                          className="text-xs underline"
-                          onClick={() => setMostrarDesmarcadas((v) => !v)}
+                          disabled={busy}
+                          onClick={() =>
+                            perform({ action: "pause", id: c.id }, t("Novas abordagens pausadas."))
+                          }
+                          className="inline-flex min-h-8 items-center rounded-full border px-3 text-xs hover:bg-muted"
                         >
-                          {mostrarDesmarcadas
-                            ? t("Esconder desmarcadas")
-                            : `${t("Mostrar desmarcadas")} (${desmarcadas.length})`}
+                          {t("Pausar abordagens")}
                         </button>
                       )}
-                      {descartaveis.length > 0 &&
-                        (confirmandoExclusao ? (
-                          <span className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs text-muted-foreground">
-                              {t(
-                                "Excluir tira essas empresas da lista. Em outra busca, elas podem aparecer de novo como novas.",
-                              )}
-                            </span>
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              disabled={busy}
-                              onClick={() => void excluirDesmarcadas()}
-                            >
-                              {t("Confirmar exclusão")}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              disabled={busy}
-                              onClick={() => setConfirmandoExclusao(false)}
-                            >
-                              {t("Cancelar")}
-                            </Button>
-                          </span>
-                        ) : (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={busy}
-                            onClick={() => setConfirmandoExclusao(true)}
-                          >
-                            {`${t("Excluir desmarcadas")} (${descartaveis.length})`}
-                          </Button>
-                        ))}
-                      {naFilaPausada && !criaSoNoEnvio && (
-                        <span className="basis-full text-xs text-muted-foreground">
-                          {t(
-                            "Esta campanha já criou o contato e o negócio dessas empresas ao iniciar. Desmarcar só impede o envio: elas continuam no funil.",
-                          )}
+                      {c.status === "paused" && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() =>
+                            perform({ action: "resume", id: c.id }, t("Campanha retomada."))
+                          }
+                          className="inline-flex min-h-8 items-center rounded-full border px-3 text-xs hover:bg-muted"
+                        >
+                          {t("Retomar fila")}
+                        </button>
+                      )}
+                      {c.status === "draft" && c.search_status === "succeeded" && !c.config && (
+                        <span className="px-1 text-xs text-text-subtle">
+                          {t("Abordagem ainda não configurada")}
                         </span>
                       )}
                     </div>
+                  </article>
+                );
+              })}
+              {data && campanhasDoGrupo.length === 0 && (
+                <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  {data.campaigns.length === 0
+                    ? t("Nenhuma campanha ainda.")
+                    : t("Nenhuma campanha neste grupo.")}
+                </p>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t("Campanha nova nasce na etapa 1, quando você aprova empresas de uma busca.")}{" "}
+              <Link href={hrefDaEtapa("empresas", null)} className="underline">
+                {t("Nova busca")}
+              </Link>
+            </p>
+          </section>
+          <div className="flex min-w-0 flex-col gap-5">
+            {data && !campaign && (
+              <Card className="flex min-h-80 flex-col items-center justify-center gap-3 p-8 text-center">
+                <h2 className="text-xl font-semibold">{t("Nenhuma campanha ainda")}</h2>
+                <p className="max-w-md text-sm text-muted-foreground">
+                  {t(
+                    "Encontre empresas na etapa 1. Cada busca aprovada aparece aqui como uma campanha.",
                   )}
+                </p>
+                <Button asChild variant="outline">
+                  <Link href={hrefDaEtapa("empresas", null)}>{t("Ir para a etapa 1")}</Link>
+                </Button>
+              </Card>
+            )}
+            {campaign && candidates.length === 0 && (
+              <Card className="flex flex-col gap-3 p-6">
+                <h2 className="text-lg font-semibold">{t("Acompanhar resultados")}</h2>
+                <p className="text-sm text-muted-foreground">
+                  {campaign.search_status === "succeeded"
+                    ? t("Esta campanha não tem empresas para abordar")
+                    : t("A busca desta campanha ainda não terminou")}
+                  {" · "}
+                  {campaign.name}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button asChild variant="outline">
+                    <Link href={hrefDaEtapa("empresas", campaign.id)}>
+                      {t("Ir para a etapa 1")}
+                    </Link>
+                  </Button>
+                  <Button asChild variant="outline">
+                    <Link href={hrefDaCampanha(campaign.id)}>{t("Abrir a campanha")}</Link>
+                  </Button>
                 </div>
-                <div className="mt-4 grid grid-cols-3 gap-3">
-                  {filtrosDaEtapa.map((tipo) => {
-                    const ativo = filtro.tipo === tipo && !filtro.motivo;
-                    return (
-                      <button
-                        key={tipo}
-                        type="button"
-                        aria-pressed={ativo}
-                        title={t("Mostrar na tabela de resultados")}
-                        onClick={() => filtrar(tipo)}
-                        className={`rounded-md p-2 text-left transition-colors hover:bg-muted ${ativo ? "bg-muted" : ""}`}
-                      >
-                        <p className="text-2xl font-semibold tabular-nums">{count(tipo)}</p>
-                        <p className="text-xs text-muted-foreground underline-offset-2 hover:underline">
-                          {rotulosDosFiltros[tipo]}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
-                {filtrosDaEtapa.includes("recusados") && motivosDeRecusa.length > 0 && (
-                  <div className="mt-4 rounded-md border p-3">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      {t("Por que ficaram de fora")}
-                    </p>
-                    <ul className="mt-2 space-y-1 text-sm">
-                      {motivosDeRecusa.map(([motivo, quantos]) => (
-                        <li key={motivo}>
-                          <button
-                            type="button"
-                            onClick={() => filtrar("recusados", motivo)}
-                            className="flex w-full gap-3 rounded-md text-left hover:bg-muted"
-                          >
-                            <span className="w-8 shrink-0 text-right font-medium tabular-nums">
-                              {quantos}
-                            </span>
-                            <span className="text-muted-foreground underline-offset-2 hover:underline">
-                              {motivo}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {buscaConcluida && candidates.length > 0 && (
-                  <div className="mt-3">
-                    <AnaliseDaCampanha
-                      candidates={candidates}
-                      busy={busy}
-                      onAnalisar={() =>
-                        campaign
-                          ? perform(
-                              { action: "analyze_sites", id: campaign.id },
-                              t(
-                                "Análise dos sites pedida. Os sinais aparecem conforme cada site é lido.",
-                              ),
-                            )
-                          : Promise.resolve(false)
-                      }
-                      gastoIaCentavos={Number(campaign.gasto_ia_centavos ?? 0)}
-                      onLerComIa={() =>
-                        perform(
-                          { action: "read_sites_ai", id: campaign.id },
-                          t(
-                            "Leitura por IA pedida. O resumo e os sinais aparecem conforme cada site é lido.",
-                          ),
-                        )
-                      }
-                      gastoMapsUsd={Number(campaign.gasto_maps_usd ?? 0)}
-                      onProcurarNoMaps={() =>
-                        perform(
-                          { action: "search_maps_market", id: campaign.id },
-                          t(
-                            "Busca no Maps começada. O que for achado aparece em alguns minutos, e o site achado entra na análise.",
-                          ),
-                        )
-                      }
-                    />
-                  </div>
-                )}
-                {buscaConcluida && candidates.length > 0 && (
-                  <div className="mt-3 flex flex-col gap-2">
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <span>
+              </Card>
+            )}
+            {campaign && candidates.length > 0 && (
+              <Card ref={resultados} className="scroll-mt-4 overflow-hidden">
+                <div className="border-b p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-lg font-semibold">{t("Acompanhar resultados")}</h2>
+                      <p className="text-sm text-muted-foreground">
                         {t(
-                          "Nota de 0 a 100: porte, sinais do site, avaliações no Maps e o seu Gostei. Clique na nota para ver os pontos.",
+                          "Encontrado é diferente de qualificado. A qualificação depende do que for confirmado na conversa.",
                         )}
-                      </span>
-                      <button
-                        type="button"
-                        className="underline"
-                        onClick={() => setOrdenarPorNota((v) => !v)}
-                      >
-                        {ordenarPorNota ? t("Ordem da busca") : t("Ordenar pela nota")}
-                      </button>
+                      </p>
                     </div>
                     {canSelect && (
-                      <FicarComAsMelhores
-                        disputa={naDisputa}
-                        busy={busy}
-                        onAplicar={ficarComAsMelhores}
-                      />
-                    )}
-                  </div>
-                )}
-                {(filtro.tipo !== "todos" || filtro.motivo) && (
-                  <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md bg-muted p-3 text-sm">
-                    <span>
-                      {t("Mostrando")} {visiveis.length} {t("de")} {candidates.length}
-                      {filtro.motivo ? `: ${filtro.motivo}` : ""}
-                    </span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setFiltro({ tipo: "todos" })}
-                    >
-                      {t("Mostrar todas")}
-                    </Button>
-                  </div>
-                )}
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
-                    <tr>
-                      {canSelect && (
-                        <th className="p-4">
-                          <label className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={allSelected}
-                              disabled={busy || elegiveis.length === 0}
-                              onChange={() =>
-                                setSelection(
-                                  elegiveis.map((c) => c.id),
-                                  !allSelected,
-                                )
-                              }
-                              aria-label={t("Alternar seleção de todas as empresas")}
-                            />
-                            <span>{t("Abordar")}</span>
-                          </label>
-                        </th>
-                      )}
-                      <th className="min-w-48 p-4">{t("Empresa")}</th>
-                      <th className="min-w-32 p-4">{t("Nota")}</th>
-                      <th className="min-w-52 p-4">{t("Informações")}</th>
-                      <th className="p-4">{t("Progresso")}</th>
-                      <th className="p-4">{t("Conversa")}</th>
-                      <th className="min-w-52 p-4">{t("Sinais do site")}</th>
-                      <th className="min-w-44 p-4">{t("Sua avaliação")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visiveis.length === 0 && (
-                      <tr>
-                        <td
-                          colSpan={canSelect ? 8 : 7}
-                          className="p-6 text-center text-sm text-muted-foreground"
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          {noRascunho
+                            ? t(
+                                "Somente as empresas marcadas entram na fila ao iniciar as abordagens.",
+                              )
+                            : t(
+                                "Com a campanha pausada, marque ou desmarque as empresas que ainda estão na fila. Quem já foi abordado não muda.",
+                              )}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={busy || elegiveis.length === 0 || allSelected}
+                          onClick={() =>
+                            setSelection(
+                              elegiveis.map((c) => c.id),
+                              true,
+                            )
+                          }
                         >
-                          {t("Nenhuma empresa neste filtro.")}
-                        </td>
-                      </tr>
-                    )}
-                    {linhas.map((c) => (
-                      <tr key={c.id} className="border-b last:border-0">
-                        {canSelect && (
-                          <td className="p-4 align-top">
-                            {marcavel(c) && (
-                              <input
-                                type="checkbox"
-                                checked={c.selected !== false}
-                                disabled={busy}
-                                onChange={() => setSelection([c.id], c.selected === false)}
-                                aria-label={t("Marcar empresa para abordagem")}
-                              />
-                            )}
-                          </td>
+                          {t("Marcar todas")}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={busy || noneSelected}
+                          onClick={() =>
+                            setSelection(
+                              elegiveis.map((c) => c.id),
+                              false,
+                            )
+                          }
+                        >
+                          {t("Desmarcar todas")}
+                        </Button>
+                        {desmarcadas.length > 0 && (
+                          <button
+                            type="button"
+                            className="text-xs underline"
+                            onClick={() => setMostrarDesmarcadas((v) => !v)}
+                          >
+                            {mostrarDesmarcadas
+                              ? t("Esconder desmarcadas")
+                              : `${t("Mostrar desmarcadas")} (${desmarcadas.length})`}
+                          </button>
                         )}
-                        <td className="p-4 align-top">
-                          <p className="font-medium">{c.data.name}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">{c.data.category}</p>
-                          <p className="mt-1 text-xs">{c.data.phone ?? t("Sem telefone")}</p>
-                          <DecisorDaEmpresa decisores={c.decisores} />
-                        </td>
-                        <td className="p-4 align-top">
-                          <NotaDaEmpresa
-                            score={scores.get(c.id) ?? pontuar(c.data, data?.aprendizado)}
-                          />
-                        </td>
-                        <td className="max-w-64 p-4 align-top">
-                          <p className="text-xs text-muted-foreground">{c.data.address}</p>
-                          {safePublicLink(c.data.website) && (
-                            <a
-                              className="mt-1 block underline"
-                              href={safePublicLink(c.data.website)}
-                              target="_blank"
-                              rel="noreferrer"
+                        {descartaveis.length > 0 &&
+                          (confirmandoExclusao ? (
+                            <span className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs text-muted-foreground">
+                                {t(
+                                  "Excluir tira essas empresas da lista. Em outra busca, elas podem aparecer de novo como novas.",
+                                )}
+                              </span>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                disabled={busy}
+                                onClick={() => void excluirDesmarcadas()}
+                              >
+                                {t("Confirmar exclusão")}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={busy}
+                                onClick={() => setConfirmandoExclusao(false)}
+                              >
+                                {t("Cancelar")}
+                              </Button>
+                            </span>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() => setConfirmandoExclusao(true)}
                             >
-                              {t("Site da empresa")}
-                            </a>
-                          )}
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {c.data.rating ?? "—"} ★ · {c.data.reviews ?? 0} {t("avaliações")}
-                          </p>
-                          {c.data.emails.map((email) => (
-                            <p key={email} className="mt-1 text-xs break-all">
-                              {email}
-                            </p>
+                              {`${t("Excluir desmarcadas")} (${descartaveis.length})`}
+                            </Button>
                           ))}
-                          <BuscaNoMapsDaEmpresa busca={c.data.maps_busca} />
-                        </td>
-                        <td className="max-w-64 p-4 align-top">
-                          <Badge variant="outline">{t(labels[c.progress] ?? c.progress)}</Badge>
-                          {c.error && (
-                            <p className="mt-2 text-xs text-muted-foreground">{c.error}</p>
-                          )}
-                          {c.message_status && (
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {t("Mensagem:")} {c.message_status}
-                            </p>
-                          )}
-                        </td>
-                        <td className="p-4 align-top">
-                          {c.conversation_id && (
-                            <Link className="underline" href={`/app/inbox?id=${c.conversation_id}`}>
-                              {t("Abrir no Inbox")}
-                            </Link>
-                          )}
-                        </td>
-                        <td className="p-4 align-top">
-                          <SinaisDaEmpresa analise={c.data.analise} />
-                        </td>
-                        <td className="p-4 align-top">
-                          <AvaliacaoDaEmpresa
-                            avaliacao={c.data.avaliacao}
-                            busy={busy}
-                            onAvaliar={(nota, motivo) =>
-                              perform(
-                                { action: "rate", id: c.id, nota, motivo: motivo || null },
+                        {naFilaPausada && !criaSoNoEnvio && (
+                          <span className="basis-full text-xs text-muted-foreground">
+                            {t(
+                              "Esta campanha já criou o contato e o negócio dessas empresas ao iniciar. Desmarcar só impede o envio: elas continuam no funil.",
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                    {filtrosDaEtapa.map((tipo) => {
+                      const ativo = filtro.tipo === tipo && !filtro.motivo;
+                      return (
+                        <button
+                          key={tipo}
+                          type="button"
+                          aria-pressed={ativo}
+                          title={t("Mostrar na tabela de resultados")}
+                          onClick={() => filtrar(tipo)}
+                          className={`rounded-md p-2 text-left transition-colors hover:bg-muted ${ativo ? "bg-muted" : ""}`}
+                        >
+                          <p className="text-2xl font-semibold tabular-nums">{count(tipo)}</p>
+                          <p className="text-xs text-muted-foreground underline-offset-2 hover:underline">
+                            {rotulosDosFiltros[tipo]}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {filtrosDaEtapa.includes("recusados") && motivosDeRecusa.length > 0 && (
+                    <div className="mt-4 rounded-md border p-3">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        {t("Por que ficaram de fora")}
+                      </p>
+                      <ul className="mt-2 space-y-1 text-sm">
+                        {motivosDeRecusa.map(([motivo, quantos]) => (
+                          <li key={motivo}>
+                            <button
+                              type="button"
+                              onClick={() => filtrar("recusados", motivo)}
+                              className="flex w-full gap-3 rounded-md text-left hover:bg-muted"
+                            >
+                              <span className="w-8 shrink-0 text-right font-medium tabular-nums">
+                                {quantos}
+                              </span>
+                              <span className="text-muted-foreground underline-offset-2 hover:underline">
+                                {motivo}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {buscaConcluida && candidates.length > 0 && (
+                    <div className="mt-3">
+                      <AnaliseDaCampanha
+                        candidates={candidates}
+                        busy={busy}
+                        onAnalisar={() =>
+                          campaign
+                            ? perform(
+                                { action: "analyze_sites", id: campaign.id },
                                 t(
-                                  "Avaliação salva. As próximas buscas levam em conta o seu gosto.",
+                                  "Análise dos sites pedida. Os sinais aparecem conforme cada site é lido.",
                                 ),
                               )
-                            }
-                          />
-                        </td>
+                            : Promise.resolve(false)
+                        }
+                        gastoIaCentavos={Number(campaign.gasto_ia_centavos ?? 0)}
+                        onLerComIa={() =>
+                          perform(
+                            { action: "read_sites_ai", id: campaign.id },
+                            t(
+                              "Leitura por IA pedida. O resumo e os sinais aparecem conforme cada site é lido.",
+                            ),
+                          )
+                        }
+                        gastoMapsUsd={Number(campaign.gasto_maps_usd ?? 0)}
+                        onProcurarNoMaps={() =>
+                          perform(
+                            { action: "search_maps_market", id: campaign.id },
+                            t(
+                              "Busca no Maps começada. O que for achado aparece em alguns minutos, e o site achado entra na análise.",
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                  )}
+                  {buscaConcluida && candidates.length > 0 && (
+                    <div className="mt-3 flex flex-col gap-2">
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span>
+                          {t(
+                            "Nota de 0 a 100: porte, sinais do site, avaliações no Maps e o seu Gostei. Clique na nota para ver os pontos.",
+                          )}
+                        </span>
+                        <button
+                          type="button"
+                          className="underline"
+                          onClick={() => setOrdenarPorNota((v) => !v)}
+                        >
+                          {ordenarPorNota ? t("Ordem da busca") : t("Ordenar pela nota")}
+                        </button>
+                      </div>
+                      {canSelect && (
+                        <FicarComAsMelhores
+                          disputa={naDisputa}
+                          busy={busy}
+                          onAplicar={ficarComAsMelhores}
+                        />
+                      )}
+                    </div>
+                  )}
+                  {(filtro.tipo !== "todos" || filtro.motivo) && (
+                    <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md bg-muted p-3 text-sm">
+                      <span>
+                        {t("Mostrando")} {visiveis.length} {t("de")} {candidates.length}
+                        {filtro.motivo ? `: ${filtro.motivo}` : ""}
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setFiltro({ tipo: "todos" })}
+                      >
+                        {t("Mostrar todas")}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
+                      <tr>
+                        {canSelect && (
+                          <th className="p-4">
+                            <label className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={allSelected}
+                                disabled={busy || elegiveis.length === 0}
+                                onChange={() =>
+                                  setSelection(
+                                    elegiveis.map((c) => c.id),
+                                    !allSelected,
+                                  )
+                                }
+                                aria-label={t("Alternar seleção de todas as empresas")}
+                              />
+                              <span>{t("Abordar")}</span>
+                            </label>
+                          </th>
+                        )}
+                        <th className="min-w-48 p-4">{t("Empresa")}</th>
+                        <th className="min-w-32 p-4">{t("Nota")}</th>
+                        <th className="p-4">{t("Progresso")}</th>
+                        <th className="p-4">{t("Conversa")}</th>
+                        <th className="min-w-44 p-4">{t("Sua avaliação")}</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {visiveis.length === 0 && (
+                        <tr>
+                          <td
+                            colSpan={canSelect ? 6 : 5}
+                            className="p-6 text-center text-sm text-muted-foreground"
+                          >
+                            {t("Nenhuma empresa neste filtro.")}
+                          </td>
+                        </tr>
+                      )}
+                      {linhas.map((c) => (
+                        <tr key={c.id} className="border-b last:border-0">
+                          {canSelect && (
+                            <td className="p-4 align-top">
+                              {marcavel(c) && (
+                                <input
+                                  type="checkbox"
+                                  checked={c.selected !== false}
+                                  disabled={busy}
+                                  onChange={() => setSelection([c.id], c.selected === false)}
+                                  aria-label={t("Marcar empresa para abordagem")}
+                                />
+                              )}
+                            </td>
+                          )}
+                          <td className="p-4 align-top">
+                            <p className="font-medium">{c.data.name}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {c.data.category}
+                              {c.data.category && c.data.phone ? " · " : ""}
+                              {c.data.phone ?? (c.data.category ? "" : t("Sem telefone"))}
+                            </p>
+                            <DecisorDaEmpresa decisores={c.decisores} />
+                          </td>
+                          <td className="p-4 align-top">
+                            <NotaDaEmpresa
+                              score={scores.get(c.id) ?? pontuar(c.data, data?.aprendizado)}
+                            />
+                          </td>
+                          <td className="max-w-64 p-4 align-top">
+                            <Badge variant="outline">{t(labels[c.progress] ?? c.progress)}</Badge>
+                            {c.error && (
+                              <p className="mt-2 text-xs text-muted-foreground">{c.error}</p>
+                            )}
+                            {c.message_status && (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {t("Mensagem:")} {c.message_status}
+                              </p>
+                            )}
+                          </td>
+                          <td className="p-4 align-top">
+                            {c.conversation_id && (
+                              <Link
+                                className="underline"
+                                href={`/app/inbox?id=${c.conversation_id}`}
+                              >
+                                {t("Abrir no Inbox")}
+                              </Link>
+                            )}
+                          </td>
+                          <td className="p-4 align-top">
+                            <AvaliacaoDaEmpresa
+                              avaliacao={c.data.avaliacao}
+                              busy={busy}
+                              onAvaliar={(nota, motivo) =>
+                                perform(
+                                  { action: "rate", id: c.id, nota, motivo: motivo || null },
+                                  t(
+                                    "Avaliação salva. As próximas buscas levam em conta o seu gosto.",
+                                  ),
+                                )
+                              }
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
+          </div>
+        </div>
+      )}
+      {etapa === "campanha" && data && !campaign && (
+        <Card className="flex flex-col gap-3 p-6">
+          <p className="text-sm text-muted-foreground">
+            {t(
+              "A campanha pedida não está na sua organização. As suas campanhas estão na etapa 2.",
+            )}
+          </p>
+          <div>
+            <Button asChild variant="outline">
+              <Link href={hrefDaEtapa("campanhas", null)}>{t("Ir para a etapa 2")}</Link>
+            </Button>
+          </div>
+        </Card>
+      )}
+      {etapa === "campanha" && aba === "preparar" && campaign && (
+        <>
+          {campaign && (
+            <Card className="p-5">
+              <h2 className="text-lg font-semibold">{t("Preparar a campanha")}</h2>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-base font-semibold">{campaign.name}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {t(labels[campaign.search_status] ?? campaign.search_status)}
+                    {campaign.cost_usd !== null
+                      ? ` · US$ ${Number(campaign.cost_usd).toFixed(2)}`
+                      : ""}
+                  </p>
+                </div>
+                <Badge variant="outline">{t(labels[campaign.status] ?? campaign.status)}</Badge>
+              </div>
+              {campaign.error &&
+                // Busca concluída e campanha ainda em rascunho: o campo traz o
+                // AVISO da busca (já em outra campanha, busca interrompida), não
+                // uma falha. Ver `avisoDaBusca` em lib/prospecting/store.ts.
+                (campaign.status === "draft" && campaign.search_status === "succeeded" ? (
+                  <p className="mt-4 rounded-md border p-3 text-sm text-muted-foreground">
+                    {campaign.error}
+                  </p>
+                ) : (
+                  <p role="alert" className="mt-4 rounded-md bg-destructive/10 p-3 text-sm">
+                    {campaign.error}
+                  </p>
+                ))}
+              {campaign.search_status === "succeeded" && (
+                <ReferenciaDaCampanha
+                  referencia={!!campaign.referencia_em}
+                  motivo={campaign.referencia_motivo}
+                  busy={busy}
+                  onMarcar={(ativa, motivo) =>
+                    perform(
+                      { action: "reference", id: campaign.id, ativa, motivo: motivo || null },
+                      ativa
+                        ? t("Campanha marcada como referência do perfil ideal.")
+                        : t("A campanha deixou de ser referência."),
+                    )
+                  }
+                />
+              )}
+              {campaign.skipped_count > 0 && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {campaign.skipped_count}{" "}
+                  {t("resultados repetidos ou indisponíveis foram desconsiderados.")}
+                </p>
+              )}
+              {campaign.config && (
+                <>
+                  <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                    <p className="text-sm text-muted-foreground">
+                      {t("Ritmo:")} {campaign.config.daily_limit}{" "}
+                      {t("abordagens em 24 horas, com pelo menos")}{" "}
+                      {campaign.config.interval_minutes} {t("minutos entre elas.")}
+                    </p>
+                    {campaign.status === "running" ? (
+                      <Button
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() =>
+                          perform(
+                            { action: "pause", id: campaign.id },
+                            t("Novas abordagens pausadas."),
+                          )
+                        }
+                      >
+                        {t("Pausar abordagens")}
+                      </Button>
+                    ) : campaign.status === "paused" ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() => alternarEdicaoDoRitmo(campaign)}
+                        >
+                          {t("Editar ritmo")}
+                        </Button>
+                        <Button
+                          disabled={busy}
+                          onClick={() =>
+                            perform({ action: "resume", id: campaign.id }, t("Campanha retomada."))
+                          }
+                        >
+                          {t("Retomar fila")}
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                  {campaign.status === "paused" && ritmo?.campaignId === campaign.id && (
+                    <form
+                      className="mt-4 space-y-3 rounded-md border p-4"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void salvarRitmo();
+                      }}
+                    >
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="prospecting-pace-daily">{t("Máximo em 24 horas")}</Label>
+                          <Input
+                            id="prospecting-pace-daily"
+                            type="number"
+                            min={1}
+                            max={50}
+                            required
+                            value={ritmo.daily_limit}
+                            onChange={(e) =>
+                              setRitmo({ ...ritmo, daily_limit: Number(e.target.value) })
+                            }
+                            className="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="prospecting-pace-spacing">
+                            {t("Intervalo mínimo (minutos)")}
+                          </Label>
+                          <Input
+                            id="prospecting-pace-spacing"
+                            type="number"
+                            min={5}
+                            max={1440}
+                            required
+                            value={ritmo.interval_minutes}
+                            onChange={(e) =>
+                              setRitmo({ ...ritmo, interval_minutes: Number(e.target.value) })
+                            }
+                            className="mt-1"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {t(
+                          "Só dá para ajustar com a campanha pausada. Ao retomar, o próximo envio já usa o ritmo novo. Limite de 1 a 50 por dia e intervalo de 5 a 1440 minutos.",
+                        )}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="submit" disabled={busy || !ritmoValido}>
+                          {t("Salvar ritmo")}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() => setRitmo(null)}
+                        >
+                          {t("Cancelar")}
+                        </Button>
+                      </div>
+                    </form>
+                  )}
+                </>
+              )}
+              {noRascunho && candidates.length > 0 && !campaign.config && (
+                <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                  <p className="text-sm text-muted-foreground">
+                    {t("As empresas marcadas entram na fila quando a abordagem começar.")}
+                  </p>
+                  <Button asChild>
+                    <Link href={hrefDaCampanha(campaign.id, "abordagem")}>
+                      {t("Preparar a abordagem")}
+                    </Link>
+                  </Button>
+                </div>
+              )}
+            </Card>
+          )}
+          {candidates.length > 0 ? (
+            <EmpresasDaCampanha
+              empresas={candidates}
+              cidadeDaBusca={campaign.search?.location ?? null}
+              scores={scores}
+              busy={busy}
+              canSelect={canSelect}
+              marcavel={marcavel}
+              rotuloDoProgresso={(c) => t(labels[c.progress] ?? c.progress)}
+              onMarcar={(c, marcar) => setSelection([c.id], marcar)}
+              onAvaliar={(c, nota, motivo) =>
+                perform(
+                  { action: "rate", id: c.id, nota, motivo: motivo || null },
+                  t("Avaliação salva. As próximas buscas levam em conta o seu gosto."),
+                )
+              }
+            />
+          ) : (
+            <Card className="flex flex-col gap-3 p-6">
+              <h2 className="text-lg font-semibold">
+                {campaign.search_status === "succeeded"
+                  ? t("Esta campanha não tem empresas para abordar")
+                  : t("A busca desta campanha ainda não terminou")}
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                {t("Encontre e aprove empresas na etapa 1; depois prepare a campanha na etapa 2.")}
+              </p>
+              <div>
+                <Button asChild variant="outline">
+                  <Link href={hrefDaEtapa("empresas", campaign.id)}>{t("Ir para a etapa 1")}</Link>
+                </Button>
               </div>
             </Card>
           )}
         </>
       )}
-      {etapa === "abordagem" && campaign && (
+      {etapa === "campanha" && aba === "abordagem" && campaign && (
         <>
           {campaign.status === "draft" &&
             campaign.search_status === "succeeded" &&
@@ -2090,42 +2336,45 @@ export function ProspectingClient({ etapa }: { readonly etapa: Etapa }) {
             )}
         </>
       )}
-      {etapa === "abordagem" && !(campaign && noRascunho && candidates.length > 0) && (
-        <Card className="flex flex-col gap-3 p-6">
-          <h2 className="text-lg font-semibold">
-            {!campaign
-              ? t("Nenhuma campanha ainda")
-              : campaign.config
-                ? t("Esta campanha já tem a abordagem configurada")
-                : campaign.search_status !== "succeeded"
-                  ? t("A busca desta campanha ainda não terminou")
-                  : t("Esta campanha não tem empresas para abordar")}
-          </h2>
-          {campaign && (
+      {etapa === "campanha" &&
+        aba === "abordagem" &&
+        campaign &&
+        !(noRascunho && candidates.length > 0) && (
+          <Card className="flex flex-col gap-3 p-6">
+            <h2 className="text-lg font-semibold">
+              {!campaign
+                ? t("Nenhuma campanha ainda")
+                : campaign.config
+                  ? t("Esta campanha já tem a abordagem configurada")
+                  : campaign.search_status !== "succeeded"
+                    ? t("A busca desta campanha ainda não terminou")
+                    : t("Esta campanha não tem empresas para abordar")}
+            </h2>
+            {campaign && (
+              <p className="text-sm text-muted-foreground">
+                {campaign.name} · {t(labels[campaign.status] ?? campaign.status)}
+                {campaign.config
+                  ? ` · ${t("Ritmo:")} ${campaign.config.daily_limit} ${t("abordagens em 24 horas, com pelo menos")} ${campaign.config.interval_minutes} ${t("minutos entre elas.")}`
+                  : ""}
+              </p>
+            )}
             <p className="text-sm text-muted-foreground">
-              {campaign.name} · {t(labels[campaign.status] ?? campaign.status)}
-              {campaign.config
-                ? ` · ${t("Ritmo:")} ${campaign.config.daily_limit} ${t("abordagens em 24 horas, com pelo menos")} ${campaign.config.interval_minutes} ${t("minutos entre elas.")}`
-                : ""}
+              {!campaign || campaign.search_status !== "succeeded" || candidates.length === 0
+                ? t("Encontre e aprove empresas na etapa 1; depois prepare a campanha na etapa 2.")
+                : t(
+                    "A fila, as respostas e os qualificados estão na etapa 2. Pausar e retomar também.",
+                  )}
             </p>
-          )}
-          <p className="text-sm text-muted-foreground">
-            {!campaign || campaign.search_status !== "succeeded" || candidates.length === 0
-              ? t("Encontre e aprove empresas na etapa 1; depois prepare a campanha na etapa 2.")
-              : t(
-                  "A fila, as respostas e os qualificados estão na etapa 2. Pausar e retomar também.",
-                )}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline">
-              <Link href={hrefDaEtapa("empresas", campanhaNaUrl)}>{t("Ir para a etapa 1")}</Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href={hrefDaEtapa("campanhas", campanhaNaUrl)}>{t("Ir para a etapa 2")}</Link>
-            </Button>
-          </div>
-        </Card>
-      )}
+            <div className="flex flex-wrap gap-2">
+              <Button asChild variant="outline">
+                <Link href={hrefDaEtapa("empresas", campanhaNaUrl)}>{t("Ir para a etapa 1")}</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link href={hrefDaEtapa("campanhas", campanhaNaUrl)}>{t("Ir para a etapa 2")}</Link>
+              </Button>
+            </div>
+          </Card>
+        )}
     </main>
   );
 }

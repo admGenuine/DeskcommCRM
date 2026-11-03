@@ -52,9 +52,9 @@ const NAV_ALLOWLIST: Record<string, string> = {
   "/app/prospecting/empresas":
     "etapa 1 da Prospecção, alcançada pelo botão 'Abrir prospecção' da porta /app/prospecting (fork, app/app/prospecting/_etapas.ts); o menu lateral tem um item só, a porta",
   "/app/prospecting/campanhas":
-    "etapa 2 da Prospecção, alcançada pelo botão 'Abrir campanhas' da porta /app/prospecting e pelo seletor 1 · 2 · 3 de toda etapa",
+    "etapa 2 da Prospecção, alcançada pelo botão 'Abrir campanhas' da porta /app/prospecting e pelo seletor 1 · 2 de toda etapa; cada campanha abre em /app/prospecting/campanhas/[id] (tela de detalhe, alcançada pelo botão Abrir da lista)",
   "/app/prospecting/abordagem":
-    "etapa 3 da Prospecção, alcançada pelo botão 'Abrir abordagem' da porta /app/prospecting e pelo botão 'Preparar a abordagem' da etapa 2",
+    "antiga etapa 3 da Prospecção (fork); hoje só redireciona para a aba Abordagem da campanha aberta, para os links salvos não morrerem",
 };
 
 /** Deriva as rotas estáticas a partir dos arquivos de página que existem. */
