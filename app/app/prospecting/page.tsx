@@ -1,13 +1,12 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
-import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
-import { ProspectingClient } from "./_client";
+import { HubDaProspeccao } from "./_hub";
+import { exigirAdminDaProspeccao } from "./_porta";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Prospecção" };
+
+/** A porta de entrada: texto curto e três botões, um por etapa (`_etapas.ts`). */
 export default async function ProspectingPage() {
-  const user = await requireAuth();
-  const org = await resolveActiveOrg(user);
-  if (org?.role !== "admin") redirect("/app/inbox");
-  return <ProspectingClient />;
+  await exigirAdminDaProspeccao();
+  return <HubDaProspeccao />;
 }
