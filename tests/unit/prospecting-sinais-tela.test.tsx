@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AnaliseDaCampanha,
   BuscaNoMapsDaEmpresa,
+  ProcurarNoMaps,
   SinaisDaEmpresa,
   contarAnalises,
   contarBuscasNoMaps,
@@ -104,7 +105,7 @@ describe("analisar os sites da campanha", () => {
     await waitFor(() => expect(onAnalisar).toHaveBeenCalledTimes(1));
   });
 
-  it("sem nada a pedir, o botão fica desligado", () => {
+  it("sem nada a pedir, o botão fica desligado e diz por quê", () => {
     render(
       <AnaliseDaCampanha
         candidates={[{ status: "new", data: { analise: ok } }]}
@@ -115,6 +116,51 @@ describe("analisar os sites da campanha", () => {
     expect(
       (screen.getByRole("button", { name: "Analisar sites" }) as HTMLButtonElement).disabled,
     ).toBe(true);
+    expect(screen.getByText("Todas as que podem ser analisadas já foram.")).toBeTruthy();
+  });
+
+  it("a recusada só pela régua de perfil, com telefone, entra na análise; a recusada de fato não", () => {
+    // Medido na VPS da Genuine em 2026-11-04: as 20 panificadoras de uma busca foram
+    // recusadas por categoria, e o botão ficava desligado sem dizer por quê.
+    const recusadas = [
+      {
+        status: "skipped",
+        error: "Categoria fora do perfil: Padaria.",
+        data: { phone: "+5541999990001" },
+      },
+      {
+        status: "skipped",
+        error: "Fora do estado pedido (SC).",
+        data: { phone: "+5547999990002" },
+      },
+      { status: "skipped", error: "Já está no CRM.", data: { phone: "+5541999990003" } },
+      { status: "skipped", error: "Categoria fora do perfil: Padaria.", data: { phone: null } },
+      {
+        status: "skipped",
+        error: "Você marcou como não gostei: só revende",
+        data: { phone: "+5541999990004" },
+      },
+    ];
+    expect(contarAnalises(recusadas)).toEqual({ analisadas: 0, naFila: 0, semPedido: 2 });
+    const comSite = recusadas.map((c) => ({ ...c, data: { ...c.data, analise: ok } }));
+    expect(contarLeiturasIa(comSite)).toEqual({ lidas: 0, naFila: 0, aPedir: 2 });
+  });
+
+  it("campanha só com recusadas de fato: o botão desliga e explica", () => {
+    render(
+      <AnaliseDaCampanha
+        candidates={[{ status: "skipped", error: "Já está no CRM.", data: { phone: "+55419" } }]}
+        busy={false}
+        onAnalisar={vi.fn()}
+        onLerComIa={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText(
+        "Nenhuma empresa desta campanha pode ser analisada: as recusadas por telefone, país, CRM ou WhatsApp ficam de fora.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("A leitura por IA vem depois da análise dos sites.")).toBeTruthy();
   });
 });
 
@@ -258,10 +304,9 @@ describe("busca no Maps das empresas do Mercado (Fase 3b)", () => {
   it("o botão aparece só com empresas do Mercado, e mostra o gasto e o teto", async () => {
     const onProcurarNoMaps = vi.fn(async () => true);
     render(
-      <AnaliseDaCampanha
+      <ProcurarNoMaps
         candidates={candidatos}
         busy={false}
-        onAnalisar={vi.fn()}
         gastoMapsUsd={0.14}
         onProcurarNoMaps={onProcurarNoMaps}
       />,
@@ -273,10 +318,9 @@ describe("busca no Maps das empresas do Mercado (Fase 3b)", () => {
     await waitFor(() => expect(onProcurarNoMaps).toHaveBeenCalledTimes(1));
     cleanup();
     render(
-      <AnaliseDaCampanha
+      <ProcurarNoMaps
         candidates={[{ status: "new", data: { analise: semSite } }]}
         busy={false}
-        onAnalisar={vi.fn()}
         onProcurarNoMaps={vi.fn()}
       />,
     );

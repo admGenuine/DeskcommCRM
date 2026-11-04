@@ -14,6 +14,11 @@
  *
  * Nada aqui grava: marcar, avaliar e abrir conversa são do `_client.tsx`, que
  * passa as funções e continua dono do estado da campanha.
+ *
+ * "Abordar todas" e "Tirar todas da fila" (fork, 2026-11-04) valem para o que
+ * está à mostra: com um bairro ou um filtro escolhido, só para essas. Trazem de
+ * volta quem a régua recusou por perfil, mas não quem o dono marcou como "não
+ * gostei": essa volta é decisão empresa a empresa, pelo botão dela.
  */
 import { useState, type ComponentProps, type ReactNode } from "react";
 import Link from "next/link";
@@ -32,8 +37,10 @@ import {
   normalizarNome,
 } from "@/lib/prospecting/mapa/bairro";
 import type { MapaDeBairros } from "@/lib/prospecting/mapa/tipos";
+import { naoGosteiDoDono, recusaDaRegua } from "@/lib/prospecting/aprendizado";
 import { AvaliacaoDaEmpresa } from "./_avaliacao";
 import { DecisorDaEmpresa } from "./_decisor";
+import { Andamento } from "./_etapas-ui";
 import { NOTA_EM_DESTAQUE, NotaDaEmpresa } from "./_score";
 import { BuscaNoMapsDaEmpresa, SinaisDaEmpresa } from "./_sinais";
 
@@ -271,6 +278,9 @@ export function EmpresasDaCampanha({
   marcavel,
   rotuloDoProgresso,
   onMarcar,
+  onMarcarVarias,
+  avisoDaFila = null,
+  ferramentas = null,
   onAvaliar,
 }: {
   readonly empresas: readonly EmpresaDaCampanha[];
@@ -281,6 +291,12 @@ export function EmpresasDaCampanha({
   readonly marcavel: (empresa: EmpresaDaCampanha) => boolean;
   readonly rotuloDoProgresso: (empresa: EmpresaDaCampanha) => string;
   readonly onMarcar: (empresa: EmpresaDaCampanha, selected: boolean) => Promise<void>;
+  /** Marca ou desmarca várias de uma vez (o `_client.tsx` manda em lotes). */
+  readonly onMarcarVarias: (ids: string[], selected: boolean) => Promise<void>;
+  /** A regra da fila nesta situação da campanha (rascunho ou pausada). */
+  readonly avisoDaFila?: string | null;
+  /** O resto das ferramentas da fila: ficar com as melhores, excluir desmarcadas, Maps. */
+  readonly ferramentas?: ReactNode;
   readonly onAvaliar: (
     empresa: EmpresaDaCampanha,
     ...resto: Parameters<OnAvaliar>
@@ -332,6 +348,20 @@ export function EmpresasDaCampanha({
   });
   const mostradas = ordenadas.slice(0, limite);
   const totalMarcadas = empresas.filter(marcada).length;
+  // As ações em lote valem para o que está à mostra (bairro e filtros).
+  const filtrando = !!bairroEscolhido || soComTelefone || soComSite || soMarcadas || soNotaAlta;
+  const podeMarcar = (e: EmpresaDaCampanha) => canSelect && marcavel(e);
+  const aAbordar = visiveis.filter(
+    (e) =>
+      podeMarcar(e) &&
+      !marcada(e) &&
+      // O "não gostei" do dono não volta em lote; a recusa da régua volta.
+      !(e.status === "skipped" && naoGosteiDoDono(e.error)),
+  );
+  const aTirar = visiveis.filter((e) => podeMarcar(e) && marcada(e));
+  const recusadasQueVoltam = aAbordar.filter(
+    (e) => e.status === "skipped" && recusaDaRegua(e.error),
+  ).length;
 
   function escolherBairro(bairro: string | null) {
     setBairroEscolhido(bairro);
@@ -371,6 +401,56 @@ export function EmpresasDaCampanha({
         </div>
       </div>
 
+      {canSelect && (
+        <div className="flex flex-col gap-3 rounded-xl border bg-card p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="max-w-md text-sm text-muted-foreground">{avisoDaFila}</span>
+            <span className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={busy || aAbordar.length === 0}
+                onClick={() =>
+                  void onMarcarVarias(
+                    aAbordar.map((e) => e.id),
+                    true,
+                  )
+                }
+              >
+                {filtrando
+                  ? `${t("Abordar as mostradas")} (${aAbordar.length})`
+                  : `${t("Abordar todas")} (${aAbordar.length})`}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy || aTirar.length === 0}
+                onClick={() =>
+                  void onMarcarVarias(
+                    aTirar.map((e) => e.id),
+                    false,
+                  )
+                }
+              >
+                {filtrando
+                  ? `${t("Tirar da fila as mostradas")} (${aTirar.length})`
+                  : `${t("Tirar todas da fila")} (${aTirar.length})`}
+              </Button>
+            </span>
+          </div>
+          {recusadasQueVoltam > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {recusadasQueVoltam}{" "}
+              {recusadasQueVoltam === 1
+                ? t("delas foi recusada pela régua de perfil; abordar traz de volta.")
+                : t("delas foram recusadas pela régua de perfil; abordar traz de volta.")}
+            </p>
+          )}
+          {ferramentas}
+        </div>
+      )}
+      {!canSelect && ferramentas}
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,400px)_1fr]">
         <aside className="flex flex-col gap-4">
           {mapa ? (
@@ -456,7 +536,7 @@ export function EmpresasDaCampanha({
                 </div>
               ) : null;
             const selecionada = marcada(e);
-            const podeMarcar = canSelect && marcavel(e);
+            const podeMarcarEsta = podeMarcar(e);
             const site = safePublicLink(e.data.website);
             const instagram = e.data.socials.find((s) => /instagram\.com/i.test(s));
             const maps = safePublicLink(e.data.maps_url);
@@ -472,14 +552,14 @@ export function EmpresasDaCampanha({
                 >
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                     {e.data.category && (
-                      <span className="rounded-full border px-2 py-0.5 text-[11px] font-semibold tracking-wide uppercase">
+                      <span className="rounded-md border px-2 py-0.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
                         {e.data.category}
                       </span>
                     )}
                     <span className="text-base font-medium break-words">{e.data.name}</span>
                     {score && <NotaDaEmpresa score={score} />}
                   </div>
-                  {podeMarcar ? (
+                  {podeMarcarEsta ? (
                     <Button
                       type="button"
                       size="sm"
@@ -492,8 +572,8 @@ export function EmpresasDaCampanha({
                       {selecionada ? t("Vai abordar") : t("+ Abordar")}
                     </Button>
                   ) : (
-                    <span className="col-start-2 row-span-2 inline-flex min-h-8 items-center self-start rounded-full border px-3 text-xs text-muted-foreground">
-                      {rotuloDoProgresso(e)}
+                    <span className="col-start-2 row-span-2 self-start pt-1.5">
+                      <Andamento progresso={e.progress} rotulo={rotuloDoProgresso(e)} />
                     </span>
                   )}
                   <div className="col-start-1 flex min-w-0 flex-col gap-1 text-sm text-muted-foreground">
@@ -513,9 +593,13 @@ export function EmpresasDaCampanha({
                       </span>
                     )}
                     <DecisorDaEmpresa decisores={e.decisores} />
-                    <SinaisDaEmpresa analise={e.data.analise} />
+                    {e.data.analise && <SinaisDaEmpresa analise={e.data.analise} />}
                     <BuscaNoMapsDaEmpresa busca={e.data.maps_busca} />
-                    {e.error && podeMarcar === false && <span className="text-xs">{e.error}</span>}
+                    {e.status === "skipped" && e.error && (
+                      <span className="text-xs">
+                        {t("Fora da fila")} · {e.error}
+                      </span>
+                    )}
                     {e.message_status && (
                       <span className="text-xs">
                         {t("Mensagem:")} {e.message_status}

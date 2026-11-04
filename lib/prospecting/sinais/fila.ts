@@ -4,7 +4,8 @@
  *
  * - `pedirAnaliseDaCampanha`: o dono pede, a tela chama; marca como pendente as
  *   empresas da campanha que ainda não foram analisadas (ou cuja análise venceu,
- *   ou foi feita por uma versão anterior das réguas) e que não foram recusadas.
+ *   ou foi feita por uma versão anterior das réguas) e que não foram recusadas,
+ *   ou foram recusadas só por uma regra de perfil (`entraNaAnalise`, fork).
  * - `analisarSitesPendentes`: a rodada do worker de prospecção. Pega poucas por
  *   vez (`for update skip locked`, sem o lock da organização: a leitura de sites
  *   demora e não pode travar os comandos da tela), lê, grava.
@@ -17,6 +18,7 @@ import type pg from "pg";
 
 import { logger } from "@/lib/logger";
 
+import { PADROES_SQL_DA_REGUA } from "../aprendizado";
 import type { Prospect } from "../schema";
 import { analisarEmpresa, type DependenciasDaAnalise } from "./analisar";
 import { buscarNaReceita } from "./receita";
@@ -42,7 +44,8 @@ export async function pedirAnaliseDaCampanha(
     `update prospecting_candidates
         set data = jsonb_set(data, '{analise}', $3::jsonb), updated_at = now()
       where organization_id = $1 and campaign_id = $2
-        and status <> 'skipped'
+        and (status <> 'skipped'
+             or (phone is not null and suppression_salt is null and error like any($6::text[])))
         and (
           data->'analise' is null
           or (data->'analise'->>'status' in ('ok','sem_site','fora_do_ar')
@@ -55,6 +58,7 @@ export async function pedirAnaliseDaCampanha(
       JSON.stringify(analisePendente(agora)),
       VALIDADE_DA_ANALISE_DIAS,
       VERSAO_DA_ANALISE,
+      PADROES_SQL_DA_REGUA,
     ],
   );
   return { pedidas: rowCount ?? 0 };

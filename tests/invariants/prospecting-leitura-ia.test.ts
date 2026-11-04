@@ -169,6 +169,35 @@ describe("leitura por IA contra o baseline", () => {
       '{"name": "Cliente Anonimizado #1"}',
     );
   });
+
+  it("pede também a recusada só pela régua de perfil, com telefone; a recusada de fato não", async () => {
+    // Fork, 2026-11-04: a mesma regra da análise grátis (`entraNaAnalise`).
+    const camp = "1ea1a000-1111-4000-8000-00000000000d";
+    const [regua, noCrm, naoGostei] = [1, 2, 3].map(
+      (n) => `1ea1a000-2222-4000-8000-0000000000d${n}`,
+    );
+    const dado = (id: string) =>
+      JSON.stringify({
+        key: `place-${id}`,
+        name: "Panificadora",
+        emails: [],
+        analise: analise("ok"),
+      });
+    const linha = (id: string, phone: string, error: string) =>
+      `('${id}','${ORG_A}','${camp}','place-${id}','${phone}','${dado(id)}'::jsonb,'skipped','${error}')`;
+    sql(`insert into prospecting_campaigns(id,organization_id,request_id,name,search,search_status) values
+           ('${camp}','${ORG_A}',gen_random_uuid(),'R','{}','succeeded');
+         insert into prospecting_candidates(id,organization_id,campaign_id,place_id,phone,data,status,error) values
+           ${linha(regua!, "+5541999990071", "Categoria fora do perfil: Padaria.")},
+           ${linha(noCrm!, "+5541999990072", "Já está no CRM.")},
+           ${linha(naoGostei!, "+5541999990073", "Você marcou como não gostei.")};`);
+    expect(await pedirLeituraIaDaCampanha(pool, ORG_A, camp)).toEqual({ pedidas: 1 });
+    expect(ia(regua!)).toBe("pendente");
+    expect(ia(noCrm!)).toBe("—");
+    expect(ia(naoGostei!)).toBe("—");
+    sql(`delete from prospecting_candidates where campaign_id='${camp}';
+         delete from prospecting_campaigns where id='${camp}';`);
+  });
 });
 
 describe("busca na Receita contra o baseline", () => {

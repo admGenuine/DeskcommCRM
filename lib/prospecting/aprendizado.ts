@@ -131,6 +131,55 @@ export function recusaDePerfil(motivo: string | null | undefined): boolean {
 }
 
 /**
+ * As recusas de perfil feitas por REGRA (a régua de aceite e o gosto
+ * aprendido). O "não gostei" que o dono deu à própria empresa fica de fora: ele
+ * é decisão de pessoa sobre aquela empresa, não regra.
+ */
+const RECUSAS_DA_REGUA = RECUSAS_DE_PERFIL.filter((inicio) => inicio !== NAO_GOSTEI);
+
+/** A recusa veio de uma regra de perfil, e não do "não gostei" dado à empresa? */
+export function recusaDaRegua(motivo: string | null | undefined): boolean {
+  return !!motivo && RECUSAS_DA_REGUA.some((inicio) => motivo.startsWith(inicio));
+}
+
+/** A recusa é o "não gostei" que o dono deu à própria empresa? */
+export function naoGosteiDoDono(motivo: string | null | undefined): boolean {
+  return !!motivo && motivo.startsWith(NAO_GOSTEI);
+}
+
+/** Os padrões LIKE das recusas da régua, para o SQL das filas da análise (`sinais/`). */
+export const PADROES_SQL_DA_REGUA: readonly string[] = RECUSAS_DA_REGUA.map(
+  (inicio) => `${inicio.replace(/[\\%_]/g, "\\$&")}%`,
+);
+
+type LinhaDaFila = {
+  status: string;
+  error: string | null | undefined;
+  phone: string | null | undefined;
+};
+
+/**
+ * Recusada só por PERFIL e com telefone: a mão do dono pode trazê-la de volta,
+ * pelo "gostei" ({@link efeitoDaAvaliacao}) ou pelo "Abordar" da campanha em
+ * preparação (`selecao-na-preparacao.ts`). Recusa de FATO (telefone, país, CRM,
+ * WhatsApp) nunca volta, e a linha que a LGPD anonimizou não tem motivo.
+ */
+export function podeVoltarPorPerfil(linha: LinhaDaFila): boolean {
+  return linha.status === "skipped" && !!linha.phone && recusaDePerfil(linha.error);
+}
+
+/**
+ * Entra na análise dos sites (e na leitura por IA): quem não foi recusado e
+ * quem a régua recusou só por perfil, porque é a análise que ajuda o dono a
+ * decidir se traz a empresa de volta. Medido na VPS da Genuine em 2026-11-04:
+ * numa busca de panificadoras a régua recusou as 20, e o "Analisar sites"
+ * ficava desligado sem dizer por quê.
+ */
+export function entraNaAnalise(linha: LinhaDaFila): boolean {
+  return linha.status !== "skipped" || (!!linha.phone && recusaDaRegua(linha.error));
+}
+
+/**
  * O que a avaliação muda na fila. O "não gostei" tira da fila quem ainda não
  * foi abordado; o "gostei" devolve à fila quem saiu por perfil, enquanto a
  * campanha é rascunho (depois de iniciada, a fila já foi montada).
@@ -150,8 +199,7 @@ export function efeitoDaAvaliacao(r: {
       return { status: "skipped", error: motivoDoNaoGostei(r.motivo) };
     return { status: r.status, error: r.error };
   }
-  if (r.status === "skipped" && r.campanhaEmRascunho && r.phone && recusaDePerfil(r.error))
-    return { status: "new", error: null };
+  if (r.campanhaEmRascunho && podeVoltarPorPerfil(r)) return { status: "new", error: null };
   return { status: r.status, error: r.error };
 }
 

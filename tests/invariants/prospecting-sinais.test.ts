@@ -151,4 +151,30 @@ describe("fila da análise de sites contra o baseline", () => {
       ),
     ).toBe("sem_site");
   });
+
+  it("pede também a recusada só pela régua de perfil, com telefone; a recusada de fato fica de fora", async () => {
+    // Fork, 2026-11-04: numa busca de panificadoras a régua recusou as 20 por
+    // categoria, e "Analisar sites" não tinha o que pedir (`entraNaAnalise`).
+    const camp = "5e1c0da0-1111-4000-8000-00000000000d";
+    const [regua, noCrm, semTelefone, naoGostei] = [1, 2, 3, 4].map(
+      (n) => `5e1c0da0-2222-4000-8000-0000000000d${n}`,
+    );
+    const linha = (id: string, phone: string | null, error: string) =>
+      `('${id}','${ORG_A}','${camp}','place-${id}',${phone ? `'${phone}'` : "null"},'{"key":"place-${id}","name":"Panificadora ${id.slice(-2)}","website":null,"emails":[]}'::jsonb,'skipped','${error}')`;
+    sql(`insert into prospecting_campaigns(id,organization_id,request_id,name,search,search_status) values
+           ('${camp}','${ORG_A}',gen_random_uuid(),'R','{}','succeeded');
+         insert into prospecting_candidates(id,organization_id,campaign_id,place_id,phone,data,status,error) values
+           ${linha(regua!, "+5541999990061", "Categoria fora do perfil: Padaria.")},
+           ${linha(noCrm!, "+5541999990062", "Já está no CRM.")},
+           ${linha(semTelefone!, null, "Categoria fora do perfil: Padaria.")},
+           ${linha(naoGostei!, "+5541999990064", "Você marcou como não gostei: só revende")};`);
+    expect(await pedirAnaliseDaCampanha(pool, ORG_A, camp)).toEqual({ pedidas: 1 });
+    expect(status(regua!)).toBe("pendente");
+    expect(status(noCrm!)).toBe("—");
+    expect(status(semTelefone!)).toBe("—");
+    expect(status(naoGostei!)).toBe("—");
+    // A linha pendente não fica para a rodada de outro caso.
+    sql(`delete from prospecting_candidates where campaign_id='${camp}';
+         delete from prospecting_campaigns where id='${camp}';`);
+  });
 });

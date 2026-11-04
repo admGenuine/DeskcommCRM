@@ -15,6 +15,7 @@ import { carregarPerfilAprendido } from "@/lib/prospecting/perfil-aprendido";
 import { criarCampanhaDoMercado } from "@/lib/prospecting/mercado/campanha";
 import { pedirAnaliseDaCampanha } from "@/lib/prospecting/sinais/fila";
 import { pedirLeituraIaDaCampanha } from "@/lib/prospecting/sinais/fila-ia";
+import { devolverRecusadasPorPerfil } from "@/lib/prospecting/selecao-na-preparacao";
 import { logger } from "@/lib/logger";
 import { pedirBuscaNoMaps } from "@/lib/prospecting/mercado/maps";
 import {
@@ -242,7 +243,7 @@ export async function POST(req: NextRequest) {
       // O histórico precisa dizer DE QUANTO PARA QUANTO — só o nome da ação não diz.
       auditMetadata = { operation: body.action, previous, next };
     } else if (body.action === "select") {
-      result = await withProspectingLock(pool, org, async (db) => {
+      const selecao = await withProspectingLock(pool, org, async (db) => {
         const campaign = (
           await db.query(
             "select id from prospecting_campaigns where organization_id=$1 and id=$2 and status='draft'",
@@ -254,12 +255,24 @@ export async function POST(req: NextRequest) {
             "A campanha não está em preparação para selecionar empresas.",
             409,
           );
+        // Fork: marcar também devolve quem a régua recusou só por perfil (`selecao-na-preparacao.ts`).
+        const devolvidas = body.selected
+          ? await devolverRecusadasPorPerfil(db, org, body.id, body.candidate_ids)
+          : 0;
         const { rows } = await db.query<{ id: string }>(
           "update prospecting_candidates set selected=$3,updated_at=now() where organization_id=$1 and campaign_id=$2 and status='new' and id=any($4::uuid[]) returning id",
           [org, body.id, body.selected, body.candidate_ids],
         );
-        return { selected: body.selected, candidates_id: rows.map((r) => r.id) };
+        return { selected: body.selected, candidates_id: rows.map((r) => r.id), devolvidas };
       });
+      result = selecao;
+      // O histórico precisa dizer quantas recusas da régua o operador desfez.
+      auditMetadata = {
+        operation: body.action,
+        selected: body.selected,
+        changed: selecao.candidates_id.length,
+        devolvidas: selecao.devolvidas,
+      };
     } else if (body.action === "select_in_queue") {
       const fila = await selecionarNaFila(pool, org, body.id, body.candidate_ids, body.selected);
       result = fila;

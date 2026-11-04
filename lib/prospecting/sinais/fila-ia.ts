@@ -4,7 +4,8 @@
  *
  * - `pedirLeituraIaDaCampanha`: o dono clica "Ler com IA". Entram as empresas da
  *   campanha com site lido pela análise grátis atual e sem leitura por IA feita
- *   (a que falhou ou parou no teto pode ser pedida de novo).
+ *   (a que falhou ou parou no teto pode ser pedida de novo), as recusadas só por
+ *   regra de perfil inclusive (`entraNaAnalise`, como na análise grátis).
  * - `lerSitesComIaPendentes`: a rodada do worker de prospecção.
  *
  * ═══ O TETO POR CAMPANHA ═══
@@ -23,6 +24,7 @@ import type pg from "pg";
 
 import { logger } from "@/lib/logger";
 
+import { PADROES_SQL_DA_REGUA } from "../aprendizado";
 import { ProspectingError } from "../provider";
 import type { Prospect } from "../schema";
 import {
@@ -72,12 +74,19 @@ export async function pedirLeituraIaDaCampanha(
     `update prospecting_candidates
         set data = jsonb_set(data, '{analise,ia}', $3::jsonb), updated_at = now()
       where organization_id = $1 and campaign_id = $2
-        and status <> 'skipped'
+        and (status <> 'skipped'
+             or (phone is not null and suppression_salt is null and error like any($5::text[])))
         and data->'analise'->>'status' = 'ok'
         and coalesce((data->'analise'->>'versao')::int, 1) = $4::int
         and (data->'analise'->'ia' is null
              or data->'analise'->'ia'->>'status' in ('falhou', 'teto'))`,
-    [org, campaignId, JSON.stringify(leituraIaPendente(agora)), VERSAO_DA_ANALISE],
+    [
+      org,
+      campaignId,
+      JSON.stringify(leituraIaPendente(agora)),
+      VERSAO_DA_ANALISE,
+      PADROES_SQL_DA_REGUA,
+    ],
   );
   return { pedidas: rowCount ?? 0 };
 }

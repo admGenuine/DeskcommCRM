@@ -14,6 +14,12 @@
  *      aberta mostra a aba pedida, com as empresas e o botão de abordar;
  *   3. a campanha escolhida viaja na URL entre as etapas, e é o caminho na
  *      campanha aberta.
+ *
+ * E o ajuste de 2026-11-04: os resultados da etapa 1 ficam simples (só os
+ * números e os motivos), os da etapa 2 se chamam "Resultados" e só têm os
+ * botões de análise, o cartão inteiro da campanha mostra os resultados dela, a
+ * campanha aberta tem "Abordar todas", e o "Abordar" de uma empresa recusada
+ * pela régua de perfil a traz de volta (antes o clique não mudava nada).
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -212,10 +218,15 @@ describe("cada etapa mostra o seu, e só o seu", () => {
     // O cartão "O que a prospecção aprendeu com você" só aparece com perfil aprendido
     // (`AprendizadoCard`); a fixture não tem um, e o cartão não é desta mudança.
     expect(screen.getByRole("heading", { name: "Decisor pelo quadro de sócios" })).toBeVisible();
-    // Os contadores são os da busca.
-    expect(screen.getByRole("button", { name: /Encontrados/ })).toBeVisible();
-    expect(screen.getByRole("button", { name: /Recusados/ })).toBeVisible();
-    expect(screen.queryByRole("button", { name: /Qualificados/ })).not.toBeInTheDocument();
+    // Os resultados são simples: os três números da busca e a seleção em lote, sem tabela.
+    expect(screen.getByText("Encontrados")).toBeVisible();
+    expect(screen.getByText("Aprovados")).toBeVisible();
+    expect(screen.getByText("Recusados")).toBeVisible();
+    expect(screen.queryByText("Qualificados")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Marcar todas" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Desmarcar todas" })).toBeVisible();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Analisar sites/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Suas campanhas" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Preparar a abordagem" })).not.toBeInTheDocument();
     // O seletor tem duas etapas, e a saída é para a etapa 2, com a campanha.
@@ -230,7 +241,7 @@ describe("cada etapa mostra o seu, e só o seu", () => {
   it("etapa 2: suas campanhas com o botão Abrir, e os resultados da abordagem; preparar mora na campanha aberta", async () => {
     navegacao.caminho = "/app/prospecting/campanhas";
     renderizar(<ProspectingClient etapa="campanhas" />);
-    await screen.findByRole("heading", { name: "Acompanhar resultados" });
+    await screen.findByRole("heading", { name: "Resultados" });
     expect(screen.getByRole("heading", { level: 1, name: "Campanha" })).toBeVisible();
     expect(screen.getByRole("heading", { level: 2, name: "Suas campanhas" })).toBeVisible();
     expect(screen.getByRole("button", { name: /Na fila/ })).toBeVisible();
@@ -238,8 +249,12 @@ describe("cada etapa mostra o seu, e só o seu", () => {
     expect(screen.queryByRole("button", { name: /Encontrados/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Encontrar empresas" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Preparar a campanha" })).not.toBeInTheDocument();
-    // A análise das empresas, a nota e a avaliação ficam nos resultados.
+    // Nos resultados, só os botões de análise: a seleção em lote mora na campanha aberta.
     expect(screen.getByRole("button", { name: /Analisar sites/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /Ler com IA/ })).toBeVisible();
+    for (const fora of ["Marcar todas", "Desmarcar todas", "Ficar só com as melhores"])
+      expect(screen.queryByRole("button", { name: fora })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Procurar no Maps/ })).not.toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Nota" })).toBeVisible();
     expect(screen.getByRole("columnheader", { name: "Sua avaliação" })).toBeVisible();
     // As informações e os sinais do site saíram da tabela: moram na campanha aberta.
@@ -351,18 +366,120 @@ describe("cada etapa mostra o seu, e só o seu", () => {
   });
 });
 
+describe("abordar quem a régua recusou (VPS da Genuine, 2026-11-04)", () => {
+  // Numa busca de panificadoras, a régua recusou as 20 por categoria, e nem a caixa da
+  // etapa 2 nem o "+ Abordar" da campanha aberta mudavam nada.
+  function recusada(campaignId: string, indice: number, error: string, phone: string | null) {
+    const base = candidato(campaignId, indice);
+    return {
+      ...base,
+      status: "skipped",
+      progress: "skipped",
+      error,
+      data: { ...base.data, phone },
+    };
+  }
+  function comRecusadas(campaignId: string) {
+    const padrao = estado();
+    return {
+      ...padrao,
+      candidates: [
+        candidato(campaignId, 1),
+        recusada(campaignId, 2, "Categoria fora do perfil: Padaria.", "+5541999990002"),
+        recusada(campaignId, 3, "Você marcou como não gostei: só revende", "+5541999990003"),
+        recusada(campaignId, 4, "Sem telefone brasileiro válido.", null),
+      ],
+    };
+  }
+
+  it("campanha aberta: a recusada pela régua tem + Abordar; Abordar todas a traz, sem o não gostei", async () => {
+    api.get.mockImplementation(async () => ({ data: comRecusadas(OUTRA) }));
+    api.post.mockResolvedValue({});
+    navegacao.caminho = `/app/prospecting/campanhas/${OUTRA}`;
+    renderizar(<ProspectingClient etapa="campanha" campanhaId={OUTRA} aba="preparar" />);
+    const pelaRegua = await screen.findByRole("article", { name: "Empresa 2" });
+    expect(within(pelaRegua).getByText(/Fora da fila · Categoria fora do perfil/)).toBeVisible();
+    // A recusa de fato não tem botão: diz o motivo e o andamento.
+    const deFato = screen.getByRole("article", { name: "Empresa 4" });
+    expect(within(deFato).queryByRole("button", { name: /Abordar/ })).not.toBeInTheDocument();
+    expect(within(deFato).getByText(/Sem telefone brasileiro válido/)).toBeVisible();
+    // O "não gostei" volta só pelo botão dele, não em lote.
+    expect(
+      within(screen.getByRole("article", { name: "Empresa 3" })).getByRole("button", {
+        name: "+ Abordar",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText(/1 delas foi recusada pela régua de perfil/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Abordar todas (1)" }));
+    expect(api.post).toHaveBeenCalledWith("/api/v1/prospecting", {
+      action: "select",
+      id: OUTRA,
+      candidate_ids: [`candidato-${OUTRA}-2`],
+      selected: true,
+    });
+    await screen.findByRole("status");
+    api.post.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Tirar todas da fila (1)" }));
+    expect(api.post).toHaveBeenCalledWith("/api/v1/prospecting", {
+      action: "select",
+      id: OUTRA,
+      candidate_ids: [`candidato-${OUTRA}-1`],
+      selected: false,
+    });
+  });
+
+  it("etapa 2: a caixa da recusada pela régua vem vazia, e marcá-la pede a volta", async () => {
+    api.get.mockImplementation(async () => ({ data: comRecusadas(CAMPANHA) }));
+    api.post.mockResolvedValue({});
+    navegacao.caminho = "/app/prospecting/campanhas";
+    renderizar(<ProspectingClient etapa="campanhas" />);
+    const caixa = await screen.findByRole("checkbox", { name: "Abordar Empresa 2" });
+    expect(caixa).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Abordar Empresa 1" })).toBeChecked();
+    expect(screen.queryByRole("checkbox", { name: "Abordar Empresa 4" })).not.toBeInTheDocument();
+    fireEvent.click(caixa);
+    expect(api.post).toHaveBeenCalledWith("/api/v1/prospecting", {
+      action: "select",
+      id: CAMPANHA,
+      candidate_ids: [`candidato-${CAMPANHA}-2`],
+      selected: true,
+    });
+  });
+
+  it("aba Abordagem sem empresa marcada: o Iniciar desliga e diz o que falta", async () => {
+    const padrao = comRecusadas(OUTRA);
+    api.get.mockImplementation(async () => ({
+      data: { ...padrao, candidates: padrao.candidates.filter((c) => c.status === "skipped") },
+    }));
+    navegacao.caminho = `/app/prospecting/campanhas/${OUTRA}`;
+    renderizar(<ProspectingClient etapa="campanha" campanhaId={OUTRA} aba="abordagem" />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Usar agente existente / configurar manualmente" }),
+    );
+    expect(screen.getByRole("button", { name: "Iniciar abordagens com IA" })).toBeDisabled();
+    expect(screen.getByText(/Nenhuma empresa marcada para abordar/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Marcar na aba Preparar a campanha" })).toHaveAttribute(
+      "href",
+      `/app/prospecting/campanhas/${OUTRA}`,
+    );
+  });
+});
+
 describe("a campanha escolhida viaja na URL", () => {
   it("ver os resultados de outra campanha na etapa 2 grava ?campanha= e o seletor passa a levá-la", async () => {
     navegacao.caminho = "/app/prospecting/campanhas";
     window.history.replaceState(null, "", "/app/prospecting/campanhas");
     renderizar(<ProspectingClient etapa="campanhas" />);
     const outra = await screen.findByRole("article", { name: "Padarias · Londrina" });
-    fireEvent.click(within(outra).getByRole("button", { name: "Ver resultados" }));
+    // O cartão inteiro é o botão: clicar nele mostra os resultados desta campanha ao lado.
+    const cartao = within(outra).getByRole("button", {
+      name: "Ver resultados de Padarias · Londrina",
+    });
+    expect(cartao).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(cartao);
     expect(window.location.search).toBe(`?campanha=${OUTRA}`);
-    expect(within(outra).getByRole("button", { name: /Mostrando resultados/ })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(cartao).toHaveAttribute("aria-pressed", "true");
+    expect(within(outra).getByText(/Mostrando os resultados/)).toBeVisible();
     const seletor = screen.getByRole("navigation", { name: "Etapas da prospecção" });
     expect(within(seletor).getByRole("link", { name: /Prospecção/ })).toHaveAttribute(
       "href",

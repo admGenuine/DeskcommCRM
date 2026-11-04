@@ -16330,6 +16330,28 @@ export const DICIONARIO: Traducoes = {
   "min entre elas": { es: "min entre ellas" },
   "ritmo": { es: "ritmo" },
   "vão ser abordadas": { es: "se van a contactar" },
+  // ── Resultados simples, abordar recusadas pela régua e Abordar todas (fork, 2026-11-04) ──
+  "Nenhuma empresa marcada para abordar.": { es: "Ninguna empresa marcada para contactar." },
+  "Nenhuma conexão de WhatsApp ativa.": { es: "Ninguna conexión de WhatsApp activa." },
+  "Nenhum agente publicado: crie um pela conversa acima.": { es: "Ningún agente publicado: crea uno con la conversación de arriba." },
+  "Ver resultados de": { es: "Ver resultados de" },
+  "Mostrando os resultados": { es: "Mostrando los resultados" },
+  "Clique para ver os resultados": { es: "Haz clic para ver los resultados" },
+  "Resultados": { es: "Resultados" },
+  "Clique no número de novo para ver todas.": { es: "Haz clic de nuevo en el número para ver todas." },
+  "Marcar na aba Preparar a campanha": { es: "Marcar en la pestaña Preparar la campaña" },
+  "Abrir Conexões": { es: "Abrir Conexiones" },
+  "Abordar as mostradas": { es: "Contactar las mostradas" },
+  "Abordar todas": { es: "Contactar todas" },
+  "Tirar da fila as mostradas": { es: "Sacar de la cola las mostradas" },
+  "Tirar todas da fila": { es: "Sacar todas de la cola" },
+  "delas foi recusada pela régua de perfil; abordar traz de volta.": { es: "de ellas fue rechazada por la regla de perfil; contactar la trae de vuelta." },
+  "delas foram recusadas pela régua de perfil; abordar traz de volta.": { es: "de ellas fueron rechazadas por la regla de perfil; contactar las trae de vuelta." },
+  "Todas as que podem ser analisadas já foram.": { es: "Todas las que se pueden analizar ya fueron analizadas." },
+  "Nenhuma empresa desta campanha pode ser analisada: as recusadas por telefone, país, CRM ou WhatsApp ficam de fora.": { es: "Ninguna empresa de esta campaña se puede analizar: las rechazadas por teléfono, país, CRM o WhatsApp quedan fuera." },
+  "Todas as que têm site já foram lidas.": { es: "Todas las que tienen sitio ya fueron leídas." },
+  "A leitura por IA vem depois da análise dos sites.": { es: "La lectura por IA viene después del análisis de los sitios." },
+  "Nenhuma empresa com site encontrado para ler.": { es: "Ninguna empresa con sitio encontrado para leer." },
 };
 
 /**
