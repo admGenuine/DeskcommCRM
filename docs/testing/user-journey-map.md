@@ -3089,7 +3089,25 @@ de contrato; pareamento real por código ainda requer confirmação no celular.
 - QA local com Supabase e provedor de teste: entrada assinada, resposta manual, deduplicação, assinatura inválida, conta incorreta e concorrência de registro aprovadas.
 - QA visual local e na instalação self-host concluída; app/worker `788b0fe` saudáveis e testes de webhook do provedor aprovados. DM real e pareamento confirmado no celular permanecem pendentes.
 
+## Resultados simples e abordar as recusadas pela régua, 2026-11-04 (fork Genuine)
+
+[P1] Terceiro ajuste do dono, depois de usar a `.9` na VPS. Achado executando: numa busca de panificadoras em Curitiba a régua de aceite recusou as 20 empresas ("Categoria fora do perfil: Padaria."), e por isso **Analisar sites**, **Ler com IA**, a caixa Abordar da etapa 2 e o **+ Abordar** da campanha aberta não faziam nada: a análise só pedia as não recusadas, e a ação `select` só mexia nas "Encontrado" (a tela ainda dizia "Seleção da fila atualizada."). A caixa da recusada aparecia marcada sem ela estar na fila. Conserto na causa: marcar na preparação devolve quem a régua recusou só por perfil e tem telefone (`lib/prospecting/selecao-na-preparacao.ts`, a mesma regra do "gostei"), e a análise grátis e a leitura por IA passam a pedir essas também (`entraNaAnalise`). Recusa de fato (telefone, país, CRM, WhatsApp) continua fora.
+
+Os ajustes de tela pedidos: os resultados da etapa 1 ficam só com os números da busca, a seleção em lote e os motivos de recusa, na coluna da direita; os da etapa 2 se chamam **Resultados** e só têm os botões Analisar sites e Ler com IA; o cartão inteiro de cada campanha mostra os resultados dela; a campanha aberta ganhou **Abordar todas** e **Tirar todas da fila** (sobre o que está à mostra), com Ficar só com as melhores, Excluir desmarcadas e Procurar no Maps ao lado. Botão desligado diz por quê (análise, leitura por IA, Iniciar abordagens). Situação de campanha e andamento de empresa deixaram de ser pílula de contorno, que neste desenho é igual a botão.
+
+| Caso | Prioridade | Estado |
+| --- | --- | --- |
+| A recusada pela régua tem + Abordar e a caixa vazia; marcar chama `select` com ela; Abordar todas a traz, mas não a do "não gostei" do dono; a recusada de fato não tem botão e mostra o motivo | `[P1]` | `tests/unit/prospeccao-em-etapas.test.tsx` |
+| Marcar na preparação devolve só a recusada por perfil com telefone; desmarcar não ressuscita; campanha fora da preparação é 409; todo SQL filtra a organização | `[P1]` | `tests/unit/prospecting-selecao-na-preparacao.test.ts` |
+| A análise grátis e a leitura por IA pedem a recusada pela régua com telefone, e não a recusada de fato nem a do "não gostei" | `[P1]` | `tests/invariants/prospecting-sinais.test.ts` e `prospecting-leitura-ia.test.ts` (Postgres do CI); a contagem da tela em `tests/unit/prospecting-sinais-tela.test.tsx` |
+| Etapa 1 sem tabela; etapa 2 com Resultados só com os botões de análise; o cartão da campanha é o botão que mostra os resultados | `[P1]` | `tests/unit/prospeccao-em-etapas.test.tsx` |
+| Iniciar abordagens sem empresa marcada fica desligado e aponta a aba Preparar | `[P1]` | `tests/unit/prospeccao-em-etapas.test.tsx` |
+
+Prévia visual nesta máquina: os componentes renderizados com 20 panificadoras de exemplo, o CSS do app compilado e fotografado pelo Playwright no claro, no escuro e a 390 px, sem rolagem lateral. Não é a tela com banco: não medido aqui (sem Docker nem Supabase local), fica a conferência na VPS depois da release.
+
 ## Campanha aberta e etapa 2 com mapa de bairros — 2026-11-03 (fork Genuine)
+
+> Ajustado em 2026-11-04 pela seção acima: resultados da etapa 1 sem tabela, os da etapa 2 só com os botões de análise, e a seleção em lote na campanha aberta.
 
 [P1] Segundo ajuste pedido pelo dono, aprovado sobre protótipo navegável no tema escuro, no desenho do Radar Curitiba (a ferramenta de prospecção por bairro da Genuine). A porta passa a ter dois botões; a etapa 2 (`/app/prospecting/campanhas`) fica só com Suas campanhas (filtro Todas / Rascunho / Andamento / Encerradas, cada campanha com o botão Abrir) e Acompanhar resultados (análise das empresas, nota, Ficar só com as melhores, tabela com Abordar, Empresa, Nota, Progresso, Conversa e Sua avaliação). Abrir leva à campanha aberta (`/app/prospecting/campanhas/<id>`), com cabeçalho de três números e as abas Preparar a campanha (o cartão de preparar e, embaixo, o mapa de bairros pintado pela quantidade de empresas, o ranking de bairros e a lista agrupada por bairro com o botão Vai abordar / + Abordar) e Abordagem (a antiga etapa 3). O bairro é lido do endereço (`lib/prospecting/mapa/bairro.ts`); o desenho só existe para Curitiba (`curitiba.ts`, 75 bairros); em outra cidade fica o ranking. `/app/prospecting/abordagem` só redireciona.
 

@@ -281,3 +281,57 @@ export function CabecalhoDaCampanha({
     </header>
   );
 }
+
+/**
+ * Situação de campanha ou de busca, em etiqueta de canto reto e fundo cheio.
+ * Fork, 2026-11-04: a situação era um `Badge` de contorno, que neste desenho é
+ * idêntico ao botão em pílula; o dono clicou em "Preparar campanha" esperando
+ * uma ação. Botão é pílula com contorno; situação é esta etiqueta.
+ */
+export function Etiqueta({
+  children,
+  tom = "neutro",
+}: {
+  readonly children: ReactNode;
+  readonly tom?: "neutro" | "forte";
+}) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold tracking-wide uppercase ${
+        tom === "forte" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+      }`}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** A cor do ponto de cada andamento da abordagem (`prospecting_candidates.progress`). */
+const COR_DO_ANDAMENTO: Record<string, string> = {
+  queued: "bg-info",
+  sending: "bg-info",
+  sent: "bg-text-muted",
+  replied: "bg-warning",
+  qualified: "bg-success",
+  skipped: "bg-border-strong",
+  new: "bg-border-strong",
+};
+
+/** O andamento de uma empresa: ponto e texto, sem contorno, para não ser lido como botão. */
+export function Andamento({
+  progresso,
+  rotulo,
+}: {
+  readonly progresso: string;
+  readonly rotulo: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs whitespace-nowrap text-foreground">
+      <span
+        aria-hidden="true"
+        className={`size-2 shrink-0 rounded-full ${COR_DO_ANDAMENTO[progresso] ?? "bg-border-strong"}`}
+      />
+      {rotulo}
+    </span>
+  );
+}

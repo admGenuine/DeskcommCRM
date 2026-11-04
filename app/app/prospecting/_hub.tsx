@@ -49,7 +49,7 @@ function blocosDaEtapa(t: (texto: string) => string, etapa: Etapa): string[] {
     case "campanhas":
       return [
         t("Suas campanhas"),
-        t("Acompanhar resultados"),
+        t("Resultados"),
         t("Campanha aberta: Preparar a campanha e Abordagem"),
       ];
   }
