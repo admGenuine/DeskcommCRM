@@ -3089,6 +3089,20 @@ de contrato; pareamento real por código ainda requer confirmação no celular.
 - QA local com Supabase e provedor de teste: entrada assinada, resposta manual, deduplicação, assinatura inválida, conta incorreta e concorrência de registro aprovadas.
 - QA visual local e na instalação self-host concluída; app/worker `788b0fe` saudáveis e testes de webhook do provedor aprovados. DM real e pareamento confirmado no celular permanecem pendentes.
 
+## Campanha com modelo aprovado na API oficial, 2026-11-12 (fork Genuine)
+
+[P1] Pedido do dono: na API oficial do WhatsApp a campanha só entrega fora da janela de 24 horas se mandar um modelo aprovado, e até aqui ela só mandava texto livre. Agora, quando o número escolhido só entrega modelo (a API oficial e os parceiros dela), a tela de criar e editar troca o texto pela escolha do modelo aprovado daquele número, com a origem de cada variável (nome, primeiro nome, saudação, campo do contato, campo do negócio ou valor fixo; mídia do cabeçalho pelo link salvo no modelo) e os envios por rodada (padrão 10, de 1 a 60). Campanha de texto nesse número é recusada com a mensagem que explica por quê. Número não oficial continua igual. A escolha mora em `campaign_message_templates` (migration 9006); o texto da campanha guarda uma cópia derivada, que a preparação do original congela por pessoa.
+
+| Caso | Prioridade | Estado |
+| --- | --- | --- |
+| A rodada envia o modelo com os valores de cada pessoa e faz vários envios por rodada; quem pediu para sair continua pulado; o teto do número segura; modelo pausado pausa a campanha; campanha de texto continua com um envio de texto | `[P1]` | `tests/unit/campanha-com-modelo-rodada.test.ts` (a rodada de verdade, banco em memória, envio dublado na borda; sabotagens medidas) |
+| Número oficial recusa texto; número não oficial recusa modelo; modelo pausado, fora da lista ou sem aprovação num número do rodízio é recusado; vaga sem origem é nomeada | `[P1]` | `tests/unit/campanha-com-modelo-decisoes.test.ts` |
+| A cópia do mapa faz a volta pela preparação e pelo envio, com saudação na hora do envio e dado ausente virando `variavel_ausente` | `[P1]` | `lib/campanhas/corpo-do-modelo.test.ts` (passa pelo `renderizar` real) |
+| As vagas saem da mesma derivação do envio; quem exige modelo sai da matriz de capacidades | `[P1]` | `lib/channels/modelos-da-conexao.test.ts` |
+| A tabela nova: RLS, só leitura para o navegador, cascata com a campanha, limites no banco | `[P1]` | `tests/invariants/campanha-com-modelo.test.ts` (Postgres do CI) |
+
+Prévia visual nesta máquina: a tela de criar renderizada com um número oficial e dois modelos de exemplo, o CSS do app compilado e fotografado no claro a 1280 px e 390 px, sem rolagem lateral. Não medido aqui (sem Docker nem Supabase local): a tela com banco de verdade, a chamada real à Meta e o invariante da tabela nova, que roda no CI.
+
 ## Resultados simples e abordar as recusadas pela régua, 2026-11-04 (fork Genuine)
 
 [P1] Terceiro ajuste do dono, depois de usar a `.9` na VPS. Achado executando: numa busca de panificadoras em Curitiba a régua de aceite recusou as 20 empresas ("Categoria fora do perfil: Padaria."), e por isso **Analisar sites**, **Ler com IA**, a caixa Abordar da etapa 2 e o **+ Abordar** da campanha aberta não faziam nada: a análise só pedia as não recusadas, e a ação `select` só mexia nas "Encontrado" (a tela ainda dizia "Seleção da fila atualizada."). A caixa da recusada aparecia marcada sem ela estar na fila. Conserto na causa: marcar na preparação devolve quem a régua recusou só por perfil e tem telefone (`lib/prospecting/selecao-na-preparacao.ts`, a mesma regra do "gostei"), e a análise grátis e a leitura por IA passam a pedir essas também (`entraNaAnalise`). Recusa de fato (telefone, país, CRM, WhatsApp) continua fora.

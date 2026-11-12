@@ -19,6 +19,11 @@ import { requireRole } from "@/lib/auth/require-role";
 import { FILTRO_VAZIO } from "@/lib/campanhas/audiencia";
 import { gravarPool } from "@/lib/campanhas/pool-de-numeros";
 import {
+  decidirConteudo,
+  gravarModeloDaCampanha,
+  lerModeloDoPedido,
+} from "@/lib/campanhas/modelo-da-campanha";
+import {
   codificarCursor,
   criarCampanhaSchema,
   decodificarCursor,
@@ -95,7 +100,8 @@ export async function POST(req: NextRequest): Promise<Response> {
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user, org } = authz;
 
-  const parsed = criarCampanhaSchema.safeParse(await req.json().catch(() => null));
+  const corpoDoPedido: unknown = await req.json().catch(() => null);
+  const parsed = criarCampanhaSchema.safeParse(corpoDoPedido);
   if (!parsed.success) {
     return fail("validation_failed", t("Dados inválidos."), 422, {
       requestId,
@@ -128,6 +134,22 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
 
+  // Fork (`lib/campanhas/modelo-da-campanha.ts`): conexão que só entrega modelo
+  // aprovado não aceita campanha de texto, e o modelo pedido é conferido aqui.
+  const pedidoDeModelo = lerModeloDoPedido(corpoDoPedido);
+  if (!pedidoDeModelo.ok) {
+    return fail(pedidoDeModelo.codigo, t(pedidoDeModelo.mensagem), pedidoDeModelo.status, { requestId });
+  }
+  const conteudo = await decidirConteudo(supabase, {
+    organizationId: org.orgId,
+    canalPrincipal: entrada.channel_session_id,
+    extras: entrada.channel_session_ids ?? [],
+    modelo: pedidoDeModelo.modelo ?? null,
+  });
+  if (!conteudo.ok) {
+    return fail(conteudo.codigo, t(conteudo.mensagem), conteudo.status, { requestId });
+  }
+
   const { data, error } = await supabase
     .from("campaigns")
     .insert({
@@ -135,7 +157,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       name: entrada.name,
       description: entrada.description ?? null,
       channel_session_id: entrada.channel_session_id,
-      message_body: entrada.message_body ?? null,
+      message_body: conteudo.modelo ? conteudo.corpo : (entrada.message_body ?? null),
       base_legal: entrada.base_legal,
       lia_ref: entrada.lia_ref ?? null,
       audience_filter: entrada.audience_filter ?? FILTRO_VAZIO,
@@ -158,6 +180,22 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   const criada = data as unknown as { id: string };
+  if (conteudo.modelo) {
+    try {
+      await gravarModeloDaCampanha(supabase, {
+        organizationId: org.orgId,
+        campanhaId: criada.id,
+        modelo: conteudo.modelo,
+      });
+    } catch (err) {
+      // Sem a escolha gravada, a campanha teria só a cópia do modelo no texto:
+      // desfaz, para o operador não achar que criou algo que não envia.
+      await supabase.from("campaigns").delete().eq("organization_id", org.orgId).eq("id", criada.id);
+      return fail("internal_error", err instanceof Error ? err.message : t("Não foi possível criar a campanha."), 500, {
+        requestId,
+      });
+    }
+  }
   if ((entrada.channel_session_ids ?? []).length > 0) {
     // Falha do pool NÃO derruba a criação: a campanha existe e fala pelo número
     // principal. Devolver erro aqui faria o operador achar que nada foi criado
@@ -182,7 +220,11 @@ export async function POST(req: NextRequest): Promise<Response> {
     resourceType: "campaign",
     resourceId: criada.id,
     requestId,
-    metadata: { base_legal: entrada.base_legal, numeros: 1 + (entrada.channel_session_ids ?? []).length },
+    metadata: {
+      base_legal: entrada.base_legal,
+      numeros: 1 + (entrada.channel_session_ids ?? []).length,
+      modelo: conteudo.modelo ? conteudo.modelo.template_name : null,
+    },
   });
 
   return ok(data, { requestId, status: 201 });

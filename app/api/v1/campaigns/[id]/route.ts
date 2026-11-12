@@ -17,6 +17,13 @@ import { carregarCampanha } from "@/lib/campanhas/acoes";
 import { ehEditavel, ehTerminal } from "@/lib/campanhas/maquina-de-estados";
 import { gravarPool, lerPoolExtra } from "@/lib/campanhas/pool-de-numeros";
 import { editarCampanhaSchema } from "@/lib/campanhas/schemas";
+import {
+  apagarModeloDaCampanha,
+  decidirConteudoDaEdicao,
+  gravarModeloDaCampanha,
+  lerModeloDaCampanha,
+  lerModeloDoPedido,
+} from "@/lib/campanhas/modelo-da-campanha";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { requireSupportWrite } from "@/lib/impersonate/support";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -53,7 +60,9 @@ export async function GET(
   // O pool vem junto: a tela precisa dele para mostrar por quantos números a
   // campanha fala, e uma segunda chamada para isso seria round-trip à toa.
   const extras = await lerPoolExtra(createAdminClient(), authz.org.orgId, id);
-  return ok({ ...(data as object), channel_session_ids: extras }, { requestId });
+  // Fork: a tela de edição precisa do modelo escolhido e de onde sai cada variável.
+  const modelo = await lerModeloDaCampanha(createAdminClient(), authz.org.orgId, id).catch(() => null);
+  return ok({ ...(data as object), channel_session_ids: extras, modelo }, { requestId });
 }
 
 export async function PATCH(
@@ -69,7 +78,8 @@ export async function PATCH(
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { id } = await ctx.params;
 
-  const parsed = editarCampanhaSchema.safeParse(await req.json().catch(() => null));
+  const corpoDoPedido: unknown = await req.json().catch(() => null);
+  const parsed = editarCampanhaSchema.safeParse(corpoDoPedido);
   if (!parsed.success) {
     return fail("validation_failed", t("Dados inválidos."), 422, {
       requestId,
@@ -106,10 +116,17 @@ export async function PATCH(
     "teto_diario",
     "teto_horario",
   ] as const;
-  const mexeEmConteudo = Object.entries(entrada).some(
-    ([campo, valor]) =>
-      valor !== undefined && !(CAMPOS_DE_RITMO as readonly string[]).includes(campo),
-  );
+  // Fork: o modelo aprovado é conteúdo, e só muda em rascunho como o texto.
+  const pedidoDeModelo = lerModeloDoPedido(corpoDoPedido);
+  if (!pedidoDeModelo.ok) {
+    return fail(pedidoDeModelo.codigo, t(pedidoDeModelo.mensagem), pedidoDeModelo.status, { requestId });
+  }
+  const mexeEmConteudo =
+    pedidoDeModelo.modelo !== undefined ||
+    Object.entries(entrada).some(
+      ([campo, valor]) =>
+        valor !== undefined && !(CAMPOS_DE_RITMO as readonly string[]).includes(campo),
+    );
 
   if (ehTerminal(campanha.status)) {
     return fail(
@@ -161,7 +178,23 @@ export async function PATCH(
   if (entrada.lia_ref !== undefined) mudanca.lia_ref = entrada.lia_ref;
   // Mexer no TEXTO sobe a versão do conteúdo: é ela que o destinatário carrega,
   // e é por ela que se sabe se a mensagem preparada é a mensagem de hoje.
-  if (entrada.message_body !== undefined && entrada.message_body !== campanha.message_body) {
+  // Fork (`lib/campanhas/modelo-da-campanha.ts`): conexão que só entrega modelo
+  // não aceita texto; com modelo, o texto é a cópia derivada do mapa.
+  const conteudo = await decidirConteudoDaEdicao(supabase, {
+    organizationId: authz.org.orgId,
+    campanhaId: id,
+    canalAtual: campanha.channel_session_id,
+    corpoAtual: campanha.message_body,
+    canalPedido: entrada.channel_session_id,
+    extrasPedidos: entrada.channel_session_ids,
+    corpoPedido: entrada.message_body,
+    modeloPedido: pedidoDeModelo.modelo,
+    lerExtras: () => lerPoolExtra(supabase, authz.org.orgId, id),
+  });
+  if (!conteudo.ok) return fail(conteudo.codigo, t(conteudo.mensagem), conteudo.status, { requestId });
+  if (conteudo.efeito.messageBody !== undefined) mudanca.message_body = conteudo.efeito.messageBody;
+  const corpoNovo = mudanca.message_body as string | null | undefined;
+  if (corpoNovo !== undefined && corpoNovo !== campanha.message_body) {
     mudanca.content_version = campanha.content_version + 1;
   }
 
@@ -201,6 +234,16 @@ export async function PATCH(
       409,
       { requestId },
     );
+  }
+
+  if (conteudo.efeito.gravar) {
+    await gravarModeloDaCampanha(supabase, {
+      organizationId: authz.org.orgId,
+      campanhaId: id,
+      modelo: conteudo.efeito.gravar,
+    });
+  } else if (conteudo.efeito.apagar) {
+    await apagarModeloDaCampanha(supabase, authz.org.orgId, id);
   }
 
   if (entrada.channel_session_ids !== undefined) {

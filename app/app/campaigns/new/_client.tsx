@@ -32,6 +32,8 @@ import {
   useFunis,
 } from "@/hooks/campanhas/useDestinoDaCampanha";
 import { VARIAVEIS_DA_CAMPANHA, DESCRICAO_DA_VARIAVEL } from "@/lib/campanhas/renderizador";
+import { ESCOLHA_VAZIA, pedidoDaEscolha, type EscolhaDeModelo } from "@/lib/campanhas/corpo-do-modelo";
+import { EscolhaDoModelo, useModelosDaConexao } from "../_escolha-do-modelo";
 
 export function NovaCampanha() {
   const t = useT();
@@ -66,6 +68,15 @@ export function NovaCampanha() {
   const etapasDoPublico = useEtapas(funilDoPublico || null);
   const agentes = useAgentesPublicados();
 
+  // Fork: número que só entrega modelo aprovado troca o texto pela escolha do
+  // modelo (`../_escolha-do-modelo.tsx`, `lib/campanhas/corpo-do-modelo.ts`).
+  const [escolha, setEscolha] = useState<EscolhaDeModelo>(ESCOLHA_VAZIA);
+  const modelosDoNumero = useModelosDaConexao(canal || null);
+  const exigeModelo = modelosDoNumero.data?.exige_modelo === true;
+  const pedidoDeModelo =
+    exigeModelo && modelosDoNumero.data ? pedidoDaEscolha(escolha, modelosDoNumero.data.modelos) : null;
+  const corpoDaCampanha = exigeModelo ? (pedidoDeModelo?.corpo ?? "") : texto;
+
   const filtro = useMemo(
     () => ({
       com_alguma_tag: listar(comAlgumaTag),
@@ -88,7 +99,8 @@ export function NovaCampanha() {
   const podeSalvar =
     nome.trim() !== "" &&
     canal !== "" &&
-    texto.trim() !== "" &&
+    modelosDoNumero.isSuccess &&
+    (exigeModelo ? pedidoDeModelo !== null : texto.trim() !== "") &&
     temCriterio &&
     (baseLegal !== "legitimate_interest" || liaRef.trim() !== "");
 
@@ -96,7 +108,8 @@ export function NovaCampanha() {
     const criada = await criar.mutateAsync({
       name: nome.trim(),
       channel_session_id: canal,
-      message_body: texto.trim(),
+      message_body: exigeModelo ? (pedidoDeModelo?.corpo ?? "") : texto.trim(),
+      ...(exigeModelo && pedidoDeModelo ? { modelo: pedidoDeModelo.modelo } : {}),
       base_legal: baseLegal,
       lia_ref: liaRef.trim() || null,
       audience_filter: filtro,
@@ -139,7 +152,10 @@ export function NovaCampanha() {
             id="canal"
             className="h-9 w-full rounded-md border border-border bg-surface px-2 text-sm"
             value={canal}
-            onChange={(e) => setCanal(e.target.value)}
+            onChange={(e) => {
+              setCanal(e.target.value);
+              setEscolha(ESCOLHA_VAZIA);
+            }}
           >
             <option value="">{t("Escolha um número")}</option>
             {(canais.data ?? []).map((c) => (
@@ -317,7 +333,7 @@ export function NovaCampanha() {
             variant="outline"
             disabled={!temCriterio || previa.isPending}
             onClick={() =>
-              previa.mutate({ audience_filter: filtro, message_body: texto })
+              previa.mutate({ audience_filter: filtro, message_body: corpoDaCampanha })
             }
           >
             {previa.isPending ? t("Contando…") : t("Ver quantas pessoas")}
@@ -351,6 +367,20 @@ export function NovaCampanha() {
 
       <Card className="space-y-4 p-4">
         <h2 className="font-medium">{t("Mensagem")}</h2>
+        {canal !== "" && modelosDoNumero.isPending && (
+          <p role="status" className="text-sm text-muted-foreground">
+            {t("Conferindo o que este número aceita…")}
+          </p>
+        )}
+        {modelosDoNumero.isError && (
+          <p role="alert" className="text-sm text-destructive">
+            {t("Não consegui conferir este número. Recarregue a página.")}
+          </p>
+        )}
+        {exigeModelo && modelosDoNumero.data ? (
+          <EscolhaDoModelo dados={modelosDoNumero.data} escolha={escolha} onMudar={setEscolha} />
+        ) : (
+        <>
         <Textarea
           rows={6}
           value={texto}
@@ -380,6 +410,8 @@ export function NovaCampanha() {
             )}
           </p>
         </div>
+        </>
+        )}
       </Card>
 
       <Card className="space-y-4 p-4">
