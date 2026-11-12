@@ -48,6 +48,15 @@ import { motivoParaExcluir, recusouMarketing, statusDaSaida } from "./elegibilid
 import { hashDoEndereco } from "./exclusoes";
 import { renderizar } from "./renderizador";
 import { escolherNumero, poolDaCampanha, type NumeroDisponivel } from "./rodizio";
+import {
+  PRAZO_DA_RODADA_MS,
+  conteudoDoEnvio,
+  enviosPorRodada,
+  lerModelosDasCampanhas,
+  pausarSeOModeloSaiu,
+  repetirNaRodada,
+  type ModeloDaCampanha,
+} from "./modelo-da-campanha";
 import { podeMandarAgora, proximaTentativa, type RitmoDaCampanha } from "./ritmo";
 import { nomeDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { TEXTO_DA_EXCLUSAO } from "./tipos";
@@ -119,6 +128,9 @@ export async function rodarUmaRodadaDeCampanha(
   // `lib/agent-engine/queue/queue.ts` não olha `organizations`), e quem fecha a
   // fila é `fn_suspender_organizacao`, que falha os jobs pendentes.
   const promovidas = await promoverAgendadas(admin, agora);
+  // Fork: a rodada de campanha com modelo repete envios; o prazo é dela inteira.
+  const inicioDaRodada = Date.now();
+  const prazoEsgotado = () => Date.now() - inicioDaRodada > PRAZO_DA_RODADA_MS;
 
   const { data: campanhas, error: falhaDaBusca } = await admin
     .from("campaigns")
@@ -144,6 +156,16 @@ export async function rodarUmaRodadaDeCampanha(
     return promovidas > 0 ? { ...VAZIA, promovidas, detalhe: "promovidas" } : VAZIA;
   }
 
+  // Fork (campanha com modelo, `modelo-da-campanha.ts`): sem a leitura, uma
+  // campanha de modelo sairia como texto. Falha da leitura fecha a rodada.
+  let modelos: Map<string, ModeloDaCampanha>;
+  try {
+    modelos = await lerModelosDasCampanhas(admin, emExecucao.map((c) => c.id));
+  } catch (err) {
+    logger.warn("[campanha] leitura dos modelos falhou", { motivo: err instanceof Error ? err.message : String(err) });
+    return { ...VAZIA, promovidas, detalhe: "modelos_falhou" };
+  }
+
   const numerosAtendidos = new Set<string>();
   const total: ResultadoDaRodada = { ...VAZIA, promovidas, detalhe: "" };
   const detalhes: string[] = [];
@@ -153,9 +175,20 @@ export async function rodarUmaRodadaDeCampanha(
     // a vez: sem isso, a última criada poderia monopolizar a fila para sempre.
     if (numerosAtendidos.has(campanha.channel_session_id)) continue;
     if (numerosAtendidos.size >= NUMEROS_POR_RODADA) break;
+    // Fork: depois de envios repetidos, a campanha seguinte espera a próxima rodada.
+    if (prazoEsgotado()) break;
 
     try {
-      const r = await rodarUmaCampanha(admin, campanha, agora);
+      const modelo = modelos.get(campanha.id) ?? null;
+      const pausada = modelo ? await pausarSeOModeloSaiu(admin, campanha, modelo, agora) : null;
+      if (pausada) {
+        detalhes.push(`${campanha.id.slice(0, 8)}:${pausada}`);
+        continue;
+      }
+      // Campanha de texto: uma vez, como sempre. Com modelo: até `envios_por_rodada`.
+      const r = await repetirNaRodada(enviosPorRodada(modelo), prazoEsgotado, () =>
+        rodarUmaCampanha(admin, campanha, agora, modelo),
+      );
       total.enviadas += r.enviadas;
       total.pulados += r.pulados;
       total.concluidas += r.concluidas;
@@ -239,6 +272,7 @@ async function rodarUmaCampanha(
   admin: SupabaseClient,
   campanha: CampanhaRow,
   agora: Date,
+  modelo: ModeloDaCampanha | null = null,
 ): Promise<{ enviadas: number; pulados: number; concluidas: number; detalhe: string }> {
   const { data: fila } = await admin
     .from("campaign_recipients")
@@ -448,6 +482,13 @@ async function rodarUmaCampanha(
   ).texto;
 
   try {
+    // Fork: texto, ou o modelo com os valores desta pessoa (`modelo-da-campanha.ts`).
+    const conteudo = await conteudoDoEnvio(
+      admin,
+      { organizationId: campanha.organization_id, channelSessionId: sessionEscolhida },
+      corpo,
+      modelo,
+    );
     const boundary = await beginServiceAtOrigin(
       admin,
       campanha.organization_id,
@@ -471,8 +512,7 @@ async function rodarUmaCampanha(
       } as Parameters<typeof sendMessageHandler>[1],
       {
         conversation_id: boundary.conversation_id,
-        type: "text",
-        body: corpo,
+        ...conteudo,
         metadata: {
           source: "campaign",
           campaign_id: campanha.id,

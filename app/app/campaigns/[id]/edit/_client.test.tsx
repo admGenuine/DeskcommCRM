@@ -41,6 +41,13 @@ const CAMPANHA = {
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (chave: string) => chave }));
+// Fork (campanha com modelo): a consulta do número fica de fora deste teste.
+vi.mock("../../_escolha-do-modelo", () => ({
+  useModelosDaConexao: () => ({ data: { exige_modelo: false, envios_por_rodada: { padrao: 10, maximo: 60 }, modelos: [] }, isSuccess: true, isPending: false, isError: false }),
+  EscolhaDoModelo: () => null,
+  ConteudoDaCampanha: () => null,
+  modeloDaDetalhada: () => null,
+}));
 vi.mock("@/hooks/campanhas/useCampanhas", () => ({
   useCampanha: () => ({ data: CAMPANHA, isLoading: false }),
   useEditarCampanha: () => ({ mutateAsync: vi.fn(), isPending: false }),

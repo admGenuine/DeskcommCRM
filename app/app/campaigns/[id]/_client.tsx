@@ -36,6 +36,7 @@ import { useAgentesPublicados, useFunis } from "@/hooks/campanhas/useDestinoDaCa
 import { channelLabel, useChannelSessions } from "@/hooks/channels/useChannelSessions";
 import { useContactList } from "@/hooks/contacts/useContactList";
 import { useT } from "@/hooks/i18n/useT";
+import { ConteudoDaCampanha, modeloDaDetalhada } from "../_escolha-do-modelo";
 import { ArrowBendUpLeft } from "@/lib/ui/icons";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { TEXTO_DA_EXCLUSAO } from "@/lib/campanhas/tipos";
@@ -216,7 +217,8 @@ export function DetalheDaCampanha({ id }: { id: string }) {
 
       <Card className="space-y-2 p-4">
         <h2 className="font-medium">{t("Mensagem")}</h2>
-        <p className="whitespace-pre-wrap text-sm">{c.message_body}</p>
+        {/* Fork: com modelo aprovado, o modelo e a origem de cada variável. */}
+        <ConteudoDaCampanha corpo={c.message_body} modelo={modeloDaDetalhada(c)} />
         <p className="text-xs text-muted-foreground">
           {t("Base legal")}: {c.base_legal === "consent" ? t("consentimento") : t("interesse legítimo")}
           {c.lia_ref ? ` (${c.lia_ref})` : ""}

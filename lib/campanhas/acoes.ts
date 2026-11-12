@@ -26,6 +26,7 @@ import { prepararCampanha } from "./preparacao";
 import { nomeDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { camposDoDestinatario } from "./consulta-de-audiencia";
 import { renderizar } from "./renderizador";
+import { conteudoDoTeste, copiarModeloDaCampanha } from "./modelo-da-campanha";
 import type { StatusDaCampanha } from "./tipos";
 
 export interface CampanhaCarregada {
@@ -367,7 +368,18 @@ export async function duplicarAcao(
       status: 422,
     };
   }
-  return { ok: true, id: (data as { id: string }).id };
+  const novaId = (data as { id: string }).id;
+  // Fork: a cópia leva o modelo aprovado junto (`modelo-da-campanha.ts`).
+  if (!(await copiarModeloDaCampanha(admin, c.organization_id, c.id, novaId))) {
+    await admin.from("campaigns").delete().eq("id", novaId).eq("organization_id", c.organization_id);
+    return {
+      ok: false,
+      codigo: "campanha_estado_invalido",
+      mensagem: "Não foi possível copiar o modelo da campanha. Tente duplicar de novo.",
+      status: 422,
+    };
+  }
+  return { ok: true, id: novaId };
 }
 
 /**
@@ -454,6 +466,10 @@ export async function testarAcao(
     };
   }
 
+  // Fork: texto, ou o modelo aprovado com os valores deste contato.
+  const teste = await conteudoDoTeste(admin, c, render.texto);
+  if (!teste.ok) return teste;
+
   const boundary = await beginServiceAtOrigin(admin, c.organization_id, linha.id, c.channel_session_id);
   const mensagem = await sendMessageHandler(
     admin,
@@ -466,8 +482,7 @@ export async function testarAcao(
     } as Parameters<typeof sendMessageHandler>[1],
     {
       conversation_id: boundary.conversation_id,
-      type: "text",
-      body: render.texto,
+      ...teste.conteudo,
       metadata: { source: "campaign_test", campaign_id: c.id },
     } as Parameters<typeof sendMessageHandler>[2],
   );

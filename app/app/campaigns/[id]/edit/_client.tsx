@@ -31,6 +31,13 @@ import { channelLabel, useChannelSessions } from "@/hooks/channels/useChannelSes
 import { useT } from "@/hooks/i18n/useT";
 import { useAgentesPublicados, useEtapas, useFunis } from "@/hooks/campanhas/useDestinoDaCampanha";
 import { DESCRICAO_DA_VARIAVEL, VARIAVEIS_DA_CAMPANHA } from "@/lib/campanhas/renderizador";
+import {
+  ESCOLHA_VAZIA,
+  escolhaDoModelo,
+  pedidoDaEscolha,
+  type EscolhaDeModelo,
+} from "@/lib/campanhas/corpo-do-modelo";
+import { EscolhaDoModelo, modeloDaDetalhada, useModelosDaConexao } from "../../_escolha-do-modelo";
 
 export function EditarCampanha({ id }: { id: string }) {
   const t = useT();
@@ -58,6 +65,15 @@ export function EditarCampanha({ id }: { id: string }) {
   const etapas = useEtapas(funil || null);
   const agentes = useAgentesPublicados();
 
+  // Fork: número que só entrega modelo aprovado troca o texto pela escolha do
+  // modelo (`../../_escolha-do-modelo.tsx`, `lib/campanhas/corpo-do-modelo.ts`).
+  const [escolha, setEscolha] = useState<EscolhaDeModelo>(ESCOLHA_VAZIA);
+  const modelosDoNumero = useModelosDaConexao(canal || null);
+  const exigeModelo = modelosDoNumero.data?.exige_modelo === true;
+  const pedidoDeModelo =
+    exigeModelo && modelosDoNumero.data ? pedidoDaEscolha(escolha, modelosDoNumero.data.modelos) : null;
+  const corpoDaCampanha = exigeModelo ? (pedidoDeModelo?.corpo ?? "") : texto;
+
   // Uma carga só: depois disso quem manda é o que a pessoa está digitando. Sem
   // a trava, o `refetchInterval` do detalhe apagaria a edição em andamento.
   useEffect(() => {
@@ -73,6 +89,7 @@ export function EditarCampanha({ id }: { id: string }) {
     setSemInteracao(f.sem_interacao_ha_dias == null ? "" : String(f.sem_interacao_ha_dias));
     setLimite(f.limite == null ? "100" : String(f.limite));
     setTexto(c.message_body ?? "");
+    setEscolha(escolhaDoModelo(modeloDaDetalhada(c)));
     setFunil(c.pipeline_id ?? "");
     setEtapa(c.stage_id ?? "");
     setAgente(c.agent_id ?? "");
@@ -138,7 +155,8 @@ export function EditarCampanha({ id }: { id: string }) {
   const podeSalvar =
     nome.trim() !== "" &&
     canal !== "" &&
-    texto.trim() !== "" &&
+    modelosDoNumero.isSuccess &&
+    (exigeModelo ? pedidoDeModelo !== null : texto.trim() !== "") &&
     temCriterio &&
     (baseLegal !== "legitimate_interest" || liaRef.trim() !== "");
 
@@ -163,7 +181,10 @@ export function EditarCampanha({ id }: { id: string }) {
             id="e-canal"
             className="h-9 w-full rounded-md border border-border bg-surface px-2 text-sm"
             value={canal}
-            onChange={(e) => setCanal(e.target.value)}
+            onChange={(e) => {
+              setCanal(e.target.value);
+              setEscolha(ESCOLHA_VAZIA);
+            }}
           >
             {(canais.data ?? []).map((s) => (
               <option key={s.id} value={s.id}>
@@ -248,7 +269,7 @@ export function EditarCampanha({ id }: { id: string }) {
             type="button"
             variant="outline"
             disabled={!temCriterio || previa.isPending}
-            onClick={() => previa.mutate({ audience_filter: filtro, message_body: texto, campaign_id: id })}
+            onClick={() => previa.mutate({ audience_filter: filtro, message_body: corpoDaCampanha, campaign_id: id })}
           >
             {previa.isPending ? t("Contando…") : t("Ver quantas pessoas")}
           </Button>
@@ -333,6 +354,15 @@ export function EditarCampanha({ id }: { id: string }) {
 
       <Card className="space-y-4 p-4">
         <h2 className="font-medium">{t("Mensagem")}</h2>
+        {modelosDoNumero.isError && (
+          <p role="alert" className="text-sm text-destructive">
+            {t("Não consegui conferir este número. Recarregue a página.")}
+          </p>
+        )}
+        {exigeModelo && modelosDoNumero.data ? (
+          <EscolhaDoModelo dados={modelosDoNumero.data} escolha={escolha} onMudar={setEscolha} />
+        ) : (
+        <>
         <Textarea
           rows={6}
           value={texto}
@@ -353,6 +383,8 @@ export function EditarCampanha({ id }: { id: string }) {
             </li>
           ))}
         </ul>
+        </>
+        )}
       </Card>
 
       <div className="flex items-center justify-end gap-2">
@@ -365,7 +397,9 @@ export function EditarCampanha({ id }: { id: string }) {
             await salvar.mutateAsync({
               name: nome.trim(),
               channel_session_id: canal,
-              message_body: texto.trim(),
+              message_body: exigeModelo ? (pedidoDeModelo?.corpo ?? "") : texto.trim(),
+              // Fork: com modelo, ele vai junto; sem, `null` tira o que havia.
+              modelo: exigeModelo ? (pedidoDeModelo?.modelo ?? null) : null,
               base_legal: baseLegal,
               lia_ref: liaRef.trim() || null,
               audience_filter: filtro,
