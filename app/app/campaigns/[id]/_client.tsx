@@ -36,7 +36,7 @@ import { useAgentesPublicados, useFunis } from "@/hooks/campanhas/useDestinoDaCa
 import { channelLabel, useChannelSessions } from "@/hooks/channels/useChannelSessions";
 import { useContactList } from "@/hooks/contacts/useContactList";
 import { useT } from "@/hooks/i18n/useT";
-import { ConteudoDaCampanha, modeloDaDetalhada } from "../_escolha-do-modelo";
+import { ConteudoDaCampanha, MetricasPorModelo, modeloDaDetalhada } from "../_escolha-do-modelo";
 import { ArrowBendUpLeft } from "@/lib/ui/icons";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { TEXTO_DA_EXCLUSAO } from "@/lib/campanhas/tipos";
@@ -207,6 +207,11 @@ export function DetalheDaCampanha({ id }: { id: string }) {
             {m.contagem.optOut} {t("pediram para parar")}
           </p>
         </Card>
+      )}
+
+      {/* Fork: com modelos aprovados, o resultado de cada modelo. */}
+      {modeloDaDetalhada(c) && (
+        <MetricasPorModelo campanhaId={c.id} emAndamento={c.status === "running"} />
       )}
 
       <DestinoDaCampanha campanha={c} />

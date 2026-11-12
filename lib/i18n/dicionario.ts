@@ -16381,6 +16381,24 @@ export const DICIONARIO: Traducoes = {
   "Escreva a mensagem da campanha: ela deixou de usar modelo aprovado.": { es: "Escribe el mensaje de la campaña: dejó de usar plantilla aprobada." },
   "O modelo escolhido veio incompleto: confira o modelo e as variáveis.": { es: "La plantilla elegida llegó incompleta: revisa la plantilla y las variables." },
   "Não foi possível copiar o modelo da campanha. Tente duplicar de novo.": { es: "No se pudo copiar la plantilla de la campaña. Intenta duplicar de nuevo." },
+  // ── Campanha com vários modelos em rodízio (fork, 2026-11-13) ──
+  "A cada": { es: "Cada" },
+  "A plataforma cobra cada categoria de modelo por um preço diferente, e todos os modelos da lista precisam ser da mesma categoria.": { es: "La plataforma cobra cada categoría de plantilla a un precio distinto, y todas las plantillas de la lista deben ser de la misma categoría." },
+  "A proporção de cada modelo vai de 1 a 10.": { es: "La proporción de cada plantilla va de 1 a 10." },
+  "Adicionar outro modelo": { es: "Agregar otra plantilla" },
+  "Com mais de um modelo, a campanha alterna entre eles a cada envio, na proporção escolhida. Modelo pausado pela plataforma é pulado, e o envio segue com os outros.": { es: "Con más de una plantilla, la campaña alterna entre ellas en cada envío, en la proporción elegida. La plantilla pausada por la plataforma se salta, y el envío sigue con las demás." },
+  "Conta parcial: a campanha passou de 20.000 pessoas.": { es: "Cuenta parcial: la campaña pasó de 20.000 personas." },
+  "Entregues sobre enviadas, lidas sobre entregues, falhas sobre tentadas.": { es: "Entregados sobre enviados, leídos sobre entregados, fallas sobre intentados." },
+  "Escolha um modelo em cada linha da lista.": { es: "Elige una plantilla en cada línea de la lista." },
+  "Este número é da API oficial do WhatsApp: a campanha envia modelos aprovados pela plataforma, e não texto livre.": { es: "Este número es de la API oficial de WhatsApp: la campaña envía plantillas aprobadas por la plataforma, y no texto libre." },
+  "O mesmo modelo aparece duas vezes na lista.": { es: "La misma plantilla aparece dos veces en la lista." },
+  "Os envios por rodada vão de 1 a 60.": { es: "Los envíos por ronda van de 1 a 60." },
+  "Proporção": { es: "Proporción" },
+  "Resultado por modelo": { es: "Resultado por plantilla" },
+  "Todos os modelos da lista precisam ser da mesma categoria.": { es: "Todas las plantillas de la lista deben ser de la misma categoría." },
+  "proporção": { es: "proporción" },
+  "Todos os modelos da campanha precisam ser da mesma categoria. Hoje a lista mistura Marketing e Utilidade.": { es: "Todas las plantillas de la campaña deben ser de la misma categoría. Hoy la lista mezcla Marketing y Utilidad." },
+  "Um dos números do rodízio manda texto livre e não usa modelos aprovados. Tire esse número da campanha.": { es: "Uno de los números de la rotación envía texto libre y no usa plantillas aprobadas. Quita ese número de la campaña." },
 };
 
 /**

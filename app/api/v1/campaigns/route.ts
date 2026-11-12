@@ -223,7 +223,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     metadata: {
       base_legal: entrada.base_legal,
       numeros: 1 + (entrada.channel_session_ids ?? []).length,
-      modelo: conteudo.modelo ? conteudo.modelo.template_name : null,
+      modelos: conteudo.modelo ? conteudo.modelo.itens.map((i) => i.template_name) : null,
     },
   });
 

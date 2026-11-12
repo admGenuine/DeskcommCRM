@@ -32,7 +32,8 @@ vi.mock("@/lib/channels/modelos-da-conexao", () => ({
     return {
       name: chave.name,
       language: "pt_BR",
-      category: "MARKETING",
+      // "aviso_*" é de utilidade, o resto de marketing: o caso da lista misturada.
+      category: chave.name.startsWith("aviso") ? "UTILITY" : "MARKETING",
       status: m.status,
       vagas: [
         { chave: "header:1", onde: "cabeçalho", espera: "image", antes: "", depois: "" },
@@ -63,10 +64,19 @@ const OFICIAL_2 = "oficial-2";
 const TEXTO_LIVRE = "texto-livre-1";
 const admin = {} as never;
 
-const pedido = (extra: Record<string, unknown> = {}) => ({
+const item = (extra: Record<string, unknown> = {}) => ({
   template_name: "promo",
   template_language: "pt_BR",
   variable_map: { "1": "{{primeiro_nome}}" },
+  peso: 1,
+  ...extra,
+});
+/** A lista pedida: por padrão, um modelo só, como na etapa anterior. */
+const pedido = (
+  extraDoItem: Record<string, unknown> = {},
+  extra: Record<string, unknown> = {},
+) => ({
+  itens: [item(extraDoItem)],
   envios_por_rodada: 20,
   ...extra,
 });
@@ -131,25 +141,16 @@ describe("o que a campanha pode gravar", () => {
       extras: [],
       modelo: pedido(),
     });
-    expect(r.ok && r.modelo).toEqual({
+    const esperado = {
       template_name: "promo",
       template_language: "pt_BR",
       variable_map: { "header:1": "https://cdn.exemplo.com.br/a.jpg", "1": "{{primeiro_nome}}" },
-      envios_por_rodada: 20,
-    });
+      peso: 1,
+    };
+    expect(r.ok && r.modelo).toEqual({ itens: [esperado], envios_por_rodada: 20 });
     // A cópia sai na ordem das vagas do modelo, com o cabeçalho de mídia primeiro.
     expect(r.ok && r.modelo && r.corpo).toBe(
-      serializarModelo(
-        {
-          template_name: "promo",
-          template_language: "pt_BR",
-          variable_map: {
-            "header:1": "https://cdn.exemplo.com.br/a.jpg",
-            "1": "{{primeiro_nome}}",
-          },
-        },
-        ["header:1", "1"],
-      ),
+      serializarModelo({ itens: [esperado] }, [["header:1", "1"]]),
     );
   });
 
@@ -196,7 +197,55 @@ describe("o que a campanha pode gravar", () => {
       extras: [],
       modelo: pedido({ variable_map: {} }),
     });
-    expect(!r.ok && r.mensagem).toMatch(/Falta dizer de onde sai: corpo \{\{1\}\}/);
+    expect(!r.ok && r.mensagem).toMatch(
+      /No modelo "promo", falta dizer de onde sai: corpo \{\{1\}\}/,
+    );
+  });
+});
+
+describe("a lista de modelos", () => {
+  beforeEach(() => {
+    canal.modelos.set(`${OFICIAL}:promo_b`, { status: "APPROVED" });
+    canal.modelos.set(`${OFICIAL}:aviso_pedido`, { status: "APPROVED" });
+  });
+
+  it("dois modelos aprovados da mesma categoria: grava os dois, com o peso de cada um", async () => {
+    const r = await decidirConteudo(admin, {
+      organizationId: ORG,
+      canalPrincipal: OFICIAL,
+      extras: [],
+      modelo: {
+        itens: [item({ peso: 2 }), item({ template_name: "promo_b" })],
+        envios_por_rodada: null,
+      },
+    });
+    expect(r.ok && r.modelo && r.modelo.itens.map((i) => [i.template_name, i.peso])).toEqual([
+      ["promo", 2],
+      ["promo_b", 1],
+    ]);
+  });
+
+  it("Marketing com Utilidade na mesma lista: recusa, dizendo que a lista mistura as duas", async () => {
+    const r = await decidirConteudo(admin, {
+      organizationId: ORG,
+      canalPrincipal: OFICIAL,
+      extras: [],
+      modelo: { itens: [item(), item({ template_name: "aviso_pedido" })], envios_por_rodada: null },
+    });
+    expect(!r.ok && r.mensagem).toBe(
+      "Todos os modelos da lista precisam ser da mesma categoria. Hoje a lista mistura Marketing e Utilidade.",
+    );
+  });
+
+  it("um modelo da lista pausado na criação: recusa, nomeando qual", async () => {
+    canal.modelos.set(`${OFICIAL}:promo_b`, { status: "PAUSED" });
+    const r = await decidirConteudo(admin, {
+      organizationId: ORG,
+      canalPrincipal: OFICIAL,
+      extras: [],
+      modelo: { itens: [item(), item({ template_name: "promo_b" })], envios_por_rodada: null },
+    });
+    expect(!r.ok && r.mensagem).toMatch(/"promo_b" está com o status PAUSED/);
   });
 });
 
@@ -206,9 +255,19 @@ describe("o campo `modelo` do pedido", () => {
     expect(lerModeloDoPedido({ modelo: null })).toEqual({ ok: true, modelo: null });
     expect(lerModeloDoPedido({ modelo: pedido() })).toMatchObject({
       ok: true,
-      modelo: { template_name: "promo" },
+      modelo: { itens: [{ template_name: "promo", peso: 1 }] },
     });
-    expect(lerModeloDoPedido({ modelo: pedido({ envios_por_rodada: 61 }) }).ok).toBe(false);
+    expect(lerModeloDoPedido({ modelo: pedido({}, { envios_por_rodada: 61 }) }).ok).toBe(false);
+    expect(lerModeloDoPedido({ modelo: pedido({ peso: 11 }) }).ok).toBe(false);
+    expect(lerModeloDoPedido({ modelo: { itens: [], envios_por_rodada: null } }).ok).toBe(false);
+    expect(
+      lerModeloDoPedido({ modelo: { itens: [item(), item()], envios_por_rodada: null } }).ok,
+    ).toBe(false);
+    expect(
+      lerModeloDoPedido({
+        modelo: { itens: [1, 2, 3, 4, 5, 6].map((n) => item({ template_name: `m${n}` })) },
+      }).ok,
+    ).toBe(false);
     expect(lerModeloDoPedido({ modelo: pedido({ variable_map: { "um espaço": "x" } }) }).ok).toBe(
       false,
     );
@@ -217,12 +276,8 @@ describe("o campo `modelo` do pedido", () => {
 
 describe("o conteúdo do envio", () => {
   const conexao = { organizationId: ORG, channelSessionId: OFICIAL };
-  const modelo = {
-    template_name: "promo",
-    template_language: "pt_BR",
-    variable_map: { "1": "{{primeiro_nome}}" },
-    envios_por_rodada: null,
-  };
+  const modelo = { itens: [item()], envios_por_rodada: null };
+  const comValor = { itens: [item({ variable_map: { "1": "Ana" } })] };
 
   it("campanha de texto: o texto de sempre", async () => {
     expect(await conteudoDoEnvio(admin, conexao, "Oi Ana", null)).toEqual({
@@ -232,7 +287,7 @@ describe("o conteúdo do envio", () => {
   });
 
   it("campanha com modelo: o modelo, os valores da pessoa e o texto que a conversa mostra", async () => {
-    const renderizado = serializarModelo({ ...modelo, variable_map: { "1": "Ana" } });
+    const renderizado = serializarModelo(comValor);
     expect(await conteudoDoEnvio(admin, conexao, renderizado, modelo)).toEqual({
       type: "template",
       body: "Olá Ana,",
@@ -243,23 +298,23 @@ describe("o conteúdo do envio", () => {
   });
 
   it("cópia de modelo sem a escolha ao lado: falha fechada, nunca vira texto", async () => {
-    const renderizado = serializarModelo({ ...modelo, variable_map: { "1": "Ana" } });
+    const renderizado = serializarModelo(comValor);
     await expect(conteudoDoEnvio(admin, conexao, renderizado, null)).rejects.toThrow(
       /modelo_ausente/,
     );
   });
 
-  it("modelo que saiu do espelho do número: falha com o motivo", async () => {
+  it("modelo que não está aprovado no número: falha com o motivo, nunca vira texto", async () => {
     await expect(
       conteudoDoEnvio(admin, { ...conexao, channelSessionId: OFICIAL_2 }, "x", modelo),
-    ).rejects.toThrow(/template_missing/);
+    ).rejects.toThrow(/modelos_nao_aprovados/);
   });
 });
 
 describe("envios por rodada", () => {
   it("texto: um, como sempre; modelo: o escolhido, com padrão 10 e teto 60", () => {
     expect(enviosPorRodada(null)).toBe(1);
-    const base = { template_name: "p", template_language: "pt_BR", variable_map: {} };
+    const base = { itens: [item()] };
     expect(enviosPorRodada({ ...base, envios_por_rodada: null })).toBe(10);
     expect(enviosPorRodada({ ...base, envios_por_rodada: 25 })).toBe(25);
     expect(enviosPorRodada({ ...base, envios_por_rodada: 999 })).toBe(60);
