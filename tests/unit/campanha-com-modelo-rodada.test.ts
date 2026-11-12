@@ -11,7 +11,10 @@
  *   2. quem pediu para sair continua pulado, no meio da repetição;
  *   3. os tetos continuam mandando (o da campanha e o do número);
  *   4. modelo pausado na plataforma pausa a campanha, sem envio;
- *   5. campanha de texto continua igual: um envio de texto por rodada.
+ *   5. campanha de texto continua igual: um envio de texto por rodada;
+ *   6. (2026-11-13) com vários modelos, a rodada alterna na proporção, pula o
+ *      pausado, pausa só quando nenhum está aprovado e registra o modelo de cada
+ *      pessoa.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,6 +22,8 @@ const borda = vi.hoisted(() => ({
   envios: [] as Array<Record<string, unknown>>,
   enviadosHojeNoNumero: 0,
   statusDoModelo: "APPROVED" as string,
+  /** Status por nome de modelo; o que não está aqui usa `statusDoModelo`. */
+  statusPorModelo: new Map<string, string>(),
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -60,7 +65,7 @@ vi.mock("@/lib/channels/modelos-da-conexao", () => ({
     name: chave.name,
     language: chave.language,
     category: "MARKETING",
-    status: borda.statusDoModelo,
+    status: borda.statusPorModelo.get(chave.name) ?? borda.statusDoModelo,
     vagas: [],
     previa: "",
     valoresSalvos: {},
@@ -83,7 +88,10 @@ function bancoEmMemoria(tabelas: Record<string, Linha[]>) {
   const builder = (tabela: string) => {
     const filtros: Array<(l: Linha) => boolean> = [];
     let limite = Infinity;
-    let escrita: { tipo: "update" | "delete"; dados?: Linha } | null = null;
+    let escrita:
+      | { tipo: "update" | "delete"; dados?: Linha }
+      | { tipo: "upsert"; linhas: Linha[]; chaves: string[] }
+      | null = null;
     let contar = false;
     const linhas = () => (tabelas[tabela] ??= []);
     const resolver = () => {
@@ -92,6 +100,15 @@ function bancoEmMemoria(tabelas: Record<string, Linha[]>) {
         .slice(0, limite);
       if (escrita?.tipo === "update") for (const l of alvo) Object.assign(l, escrita.dados);
       if (escrita?.tipo === "delete") tabelas[tabela] = linhas().filter((l) => !alvo.includes(l));
+      if (escrita?.tipo === "upsert") {
+        const { linhas: novas, chaves } = escrita;
+        for (const nova of novas) {
+          const existente = linhas().find((l) => chaves.every((k) => l[k] === nova[k]));
+          if (existente) Object.assign(existente, nova);
+          else linhas().push({ ...nova });
+        }
+        return { data: novas, error: null, count: null };
+      }
       return { data: alvo, error: null, count: contar ? alvo.length : null };
     };
     const filtrar = (f: (l: Linha) => boolean) => (filtros.push(f), b);
@@ -114,6 +131,15 @@ function bancoEmMemoria(tabelas: Record<string, Linha[]>) {
               return (dados: Linha) => ((escrita = { tipo: "update", dados }), b);
             case "delete":
               return () => ((escrita = { tipo: "delete" }), b);
+            case "upsert":
+              return (dados: Linha | Linha[], opcoes?: { onConflict?: string }) => {
+                escrita = {
+                  tipo: "upsert",
+                  linhas: Array.isArray(dados) ? dados : [dados],
+                  chaves: (opcoes?.onConflict ?? "id").split(","),
+                };
+                return b;
+              };
             case "eq":
               return (c: string, v: unknown) => (c.includes(".") ? b : filtrar((l) => l[c] === v));
             case "in":
@@ -148,9 +174,7 @@ const AGORA = new Date("2026-11-12T17:00:00.000Z");
 
 const MAPA = { "1": "{{primeiro_nome}}", "2": "{{lead.cidade}}" };
 const CORPO_DO_MODELO = serializarModelo({
-  template_name: "promo",
-  template_language: "pt_BR",
-  variable_map: MAPA,
+  itens: [{ template_name: "promo", template_language: "pt_BR", variable_map: MAPA }],
 });
 
 function campanha(extra: Linha = {}): Linha {
@@ -204,23 +228,33 @@ function destinatario(
   };
 }
 
-function cenario(opcoes: { campanha?: Linha; modelo?: Linha | null; destinatarios: Linha[] }) {
+function cenario(opcoes: {
+  campanha?: Linha;
+  modelo?: Linha | null;
+  /** A lista inteira, quando o caso é de vários modelos. */
+  modelos?: Linha[];
+  destinatarios: Linha[];
+}) {
   const tabelas: Record<string, Linha[]> = {
     campaigns: [opcoes.campanha ?? campanha()],
     campaign_message_templates:
-      opcoes.modelo === null
+      opcoes.modelos ??
+      (opcoes.modelo === null
         ? []
         : [
             {
               campaign_id: CAMPANHA,
               organization_id: ORG,
+              posicao: 0,
+              peso: 1,
               template_name: "promo",
               template_language: "pt_BR",
               variable_map: MAPA,
               envios_por_rodada: 2,
               ...(opcoes.modelo ?? {}),
             },
-          ],
+          ]),
+    campaign_recipient_templates: [],
     campaign_recipients: opcoes.destinatarios,
     channel_sessions: [
       { id: NUMERO, organization_id: ORG, status: "WORKING", daily_message_limit: null },
@@ -233,6 +267,7 @@ beforeEach(() => {
   borda.envios = [];
   borda.enviadosHojeNoNumero = 0;
   borda.statusDoModelo = "APPROVED";
+  borda.statusPorModelo = new Map();
 });
 
 describe("rodada de campanha com modelo", () => {
@@ -342,5 +377,111 @@ describe("rodada de campanha de texto: igual a antes", () => {
       expect.objectContaining({ type: "text", body: "Oi Ana, tudo bem?" }),
     ]);
     expect(borda.envios[0]).not.toHaveProperty("template_name");
+  });
+});
+
+describe("rodada de campanha com vários modelos", () => {
+  const MAPA_B = { "1": "{{primeiro_nome}}" };
+  const LISTA = { template_language: "pt_BR" };
+  const CORPO_DA_LISTA = serializarModelo({
+    itens: [
+      { template_name: "promo_a", variable_map: MAPA, ...LISTA },
+      { template_name: "promo_b", variable_map: MAPA_B, ...LISTA },
+    ],
+  });
+  const linhaDoModelo = (posicao: number, nome: string, mapa: Linha, peso: number): Linha => ({
+    campaign_id: CAMPANHA,
+    organization_id: ORG,
+    posicao,
+    peso,
+    template_name: nome,
+    template_language: "pt_BR",
+    variable_map: mapa,
+    envios_por_rodada: 2,
+  });
+  const listaDoisParaUm = () => [
+    linhaDoModelo(0, "promo_a", MAPA, 2),
+    linhaDoModelo(1, "promo_b", MAPA_B, 1),
+  ];
+  const pessoas = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      destinatario(i + 1, { nome: `Pessoa${i + 1} Silva`, cidade: "Curitiba" }, CORPO_DA_LISTA),
+    );
+
+  it("2 : 1 ao longo de três rodadas: A, A, B, A, A, B, com os valores de cada modelo", async () => {
+    const { admin, tabelas } = cenario({
+      campanha: campanha({ message_body: CORPO_DA_LISTA }),
+      modelos: listaDoisParaUm(),
+      destinatarios: pessoas(6),
+    });
+    for (let rodada = 0; rodada < 3; rodada++) await rodarUmaRodadaDeCampanha(admin, AGORA);
+
+    expect(borda.envios.map((e) => e.template_name)).toEqual([
+      "promo_a",
+      "promo_a",
+      "promo_b",
+      "promo_a",
+      "promo_a",
+      "promo_b",
+    ]);
+    // O modelo A leva as duas vagas; o B, só a dele.
+    expect(borda.envios[0]).toMatchObject({ template_values: { "1": "Pessoa1", "2": "Curitiba" } });
+    expect(borda.envios[2]).toMatchObject({ template_values: { "1": "Pessoa3" } });
+    // Cada pessoa fica registrada com o modelo que saiu para ela: é o que o relatório lê.
+    expect(
+      tabelas.campaign_recipient_templates!.map((r) => [r.recipient_id, r.template_name]),
+    ).toEqual([
+      ["dest-1", "promo_a"],
+      ["dest-2", "promo_a"],
+      ["dest-3", "promo_b"],
+      ["dest-4", "promo_a"],
+      ["dest-5", "promo_a"],
+      ["dest-6", "promo_b"],
+    ]);
+  });
+
+  it("modelo pausado pela plataforma é pulado, e o envio segue com o outro", async () => {
+    borda.statusPorModelo.set("promo_a", "PAUSED");
+    const { admin, tabelas } = cenario({
+      campanha: campanha({ message_body: CORPO_DA_LISTA }),
+      modelos: listaDoisParaUm(),
+      destinatarios: pessoas(3),
+    });
+    const r = await rodarUmaRodadaDeCampanha(admin, AGORA);
+    expect(r.enviadas).toBe(2);
+    expect(borda.envios.map((e) => e.template_name)).toEqual(["promo_b", "promo_b"]);
+    expect(tabelas.campaigns![0]!.status).toBe("running");
+  });
+
+  it("nenhum modelo da lista aprovado: a campanha pausa com o motivo, e nada sai", async () => {
+    borda.statusDoModelo = "PAUSED";
+    const { admin, tabelas } = cenario({
+      campanha: campanha({ message_body: CORPO_DA_LISTA }),
+      modelos: listaDoisParaUm(),
+      destinatarios: pessoas(2),
+    });
+    await rodarUmaRodadaDeCampanha(admin, AGORA);
+    expect(borda.envios).toHaveLength(0);
+    expect(tabelas.campaigns![0]).toMatchObject({
+      status: "paused",
+      failure_code: "modelos_nao_aprovados",
+    });
+  });
+
+  it("quem pediu para sair continua pulado, e não gasta a vez de nenhum modelo", async () => {
+    const lista = pessoas(4);
+    (lista[0]!.contacts as Linha).is_blocked = true;
+    const { admin, tabelas } = cenario({
+      campanha: campanha({ message_body: CORPO_DA_LISTA }),
+      modelos: [linhaDoModelo(0, "promo_a", MAPA, 1), linhaDoModelo(1, "promo_b", MAPA_B, 1)],
+      destinatarios: lista,
+    });
+    await rodarUmaRodadaDeCampanha(admin, AGORA);
+    expect(tabelas.campaign_recipients![0]).toMatchObject({ status: "opted_out" });
+    expect(borda.envios.map((e) => e.template_name)).toEqual(["promo_a", "promo_b"]);
+    expect(tabelas.campaign_recipient_templates!.map((r) => r.recipient_id)).toEqual([
+      "dest-2",
+      "dest-3",
+    ]);
   });
 });

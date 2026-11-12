@@ -485,7 +485,13 @@ async function rodarUmaCampanha(
     // Fork: texto, ou o modelo com os valores desta pessoa (`modelo-da-campanha.ts`).
     const conteudo = await conteudoDoEnvio(
       admin,
-      { organizationId: campanha.organization_id, channelSessionId: sessionEscolhida },
+      {
+        organizationId: campanha.organization_id,
+        channelSessionId: sessionEscolhida,
+        // Fork: o modelo que o rodízio escolher fica registrado para esta pessoa.
+        campanhaId: campanha.id,
+        destinatarioId: alvo.id,
+      },
       corpo,
       modelo,
     );

@@ -1,5 +1,6 @@
 /**
- * A PARTE PURA DA CAMPANHA COM MODELO (fork da Genuine, 2026-11-12).
+ * A PARTE PURA DA CAMPANHA COM MODELO (fork da Genuine, 2026-11-12; lista de
+ * modelos em 2026-11-13).
  *
  * O desenho depende de uma volta: o mapa de variáveis vira texto
  * (`serializarModelo`), a preparação do original renderiza esse texto para cada
@@ -19,9 +20,11 @@ import {
   normalizarParametro,
   origemDoValor,
   pedidoDaEscolha,
+  problemaDaEscolha,
   serializarModelo,
   valorDaOrigem,
   valoresDoCorpo,
+  valoresDoModelo,
   type ModeloParaEscolha,
 } from "./corpo-do-modelo";
 import { renderizar } from "./renderizador";
@@ -34,7 +37,7 @@ const vaga = (chave: string, espera = "text", onde = "corpo"): VagaDoModelo => (
   depois: "",
 });
 
-const MODELO = {
+const ITEM = {
   template_name: "promo_novembro",
   template_language: "pt_BR",
   variable_map: {
@@ -44,10 +47,11 @@ const MODELO = {
     "header:1": "https://cdn.exemplo.com.br/banner.jpg",
   },
 };
+const MODELO = { itens: [ITEM] };
 
 describe("a volta do mapa: cópia → preparação → envio → valores", () => {
   it("cada vaga recebe o dado da pessoa, e a saudação sai na hora do envio", () => {
-    const corpo = serializarModelo(MODELO, ["header:1", "1", "2", "3"]);
+    const corpo = serializarModelo(MODELO, [["header:1", "1", "2", "3"]]);
     expect(ehCorpoDeModelo(corpo)).toBe(true);
 
     // Preparação: sem hora, como `preparacao.ts` faz. Saudação fica literal.
@@ -83,8 +87,7 @@ describe("a volta do mapa: cópia → preparação → envio → valores", () =>
 
   it("cadastro com chaves, quebra de linha ou espaços demais não quebra a vaga nem o envio", () => {
     const corpo = serializarModelo({
-      ...MODELO,
-      variable_map: { "1": "{{contato.obs}}", "2": "fixo" },
+      itens: [{ ...ITEM, variable_map: { "1": "{{contato.obs}}", "2": "fixo" } }],
     });
     const preparado = renderizar(corpo, {
       nome: "Ana",
@@ -168,43 +171,157 @@ describe("a escolha da tela", () => {
     },
   ];
 
+  const umItem = (chave: string, peso = "") => ({ chave, origens: {}, peso });
+
   it("sem mexer em nada, a vaga de texto começa no primeiro nome e a de mídia no link salvo", () => {
-    const r = pedidoDaEscolha({ chave: "promo_novembro|pt_BR", origens: {}, envios: "" }, modelos);
+    const r = pedidoDaEscolha({ itens: [umItem("promo_novembro|pt_BR")], envios: "" }, modelos);
     expect(r?.modelo).toEqual({
-      template_name: "promo_novembro",
-      template_language: "pt_BR",
-      variable_map: { "header:1": "https://cdn.exemplo.com.br/a.jpg", "1": "{{primeiro_nome}}" },
+      itens: [
+        {
+          template_name: "promo_novembro",
+          template_language: "pt_BR",
+          variable_map: {
+            "header:1": "https://cdn.exemplo.com.br/a.jpg",
+            "1": "{{primeiro_nome}}",
+          },
+          peso: 1,
+        },
+      ],
       envios_por_rodada: null,
     });
     expect(r?.corpo.split("\n")[0]).toBe("Modelo aprovado: promo_novembro (pt_BR)");
   });
 
   it("envios por rodada fora de 1 a 60, ou sem modelo escolhido, não deixam salvar", () => {
-    expect(
-      pedidoDaEscolha({ chave: "promo_novembro|pt_BR", origens: {}, envios: "61" }, modelos),
-    ).toBeNull();
-    expect(
-      pedidoDaEscolha({ chave: "promo_novembro|pt_BR", origens: {}, envios: "2.5" }, modelos),
-    ).toBeNull();
-    expect(pedidoDaEscolha({ chave: "", origens: {}, envios: "" }, modelos)).toBeNull();
-    expect(
-      pedidoDaEscolha({ chave: "promo_novembro|pt_BR", origens: {}, envios: "20" }, modelos)?.modelo
-        .envios_por_rodada,
-    ).toBe(20);
+    const item = [umItem("promo_novembro|pt_BR")];
+    expect(pedidoDaEscolha({ itens: item, envios: "61" }, modelos)).toBeNull();
+    expect(pedidoDaEscolha({ itens: item, envios: "2.5" }, modelos)).toBeNull();
+    expect(pedidoDaEscolha({ itens: [umItem("")], envios: "" }, modelos)).toBeNull();
+    expect(pedidoDaEscolha({ itens: item, envios: "20" }, modelos)?.modelo.envios_por_rodada).toBe(
+      20,
+    );
   });
 
   it("a escolha salva volta para a tela de editar", () => {
     expect(
       escolhaDoModelo({
-        template_name: "promo_novembro",
-        template_language: "pt_BR",
-        variable_map: { "1": "{{lead.cidade}}" },
+        itens: [
+          {
+            template_name: "promo_novembro",
+            template_language: "pt_BR",
+            variable_map: { "1": "{{lead.cidade}}" },
+            peso: 2,
+          },
+        ],
         envios_por_rodada: 15,
       }),
     ).toEqual({
-      chave: "promo_novembro|pt_BR",
-      origens: { "1": { fonte: "lead", campo: "cidade", fixo: "" } },
+      itens: [
+        {
+          chave: "promo_novembro|pt_BR",
+          origens: { "1": { fonte: "lead", campo: "cidade", fixo: "" } },
+          peso: "2",
+        },
+      ],
       envios: "15",
     });
+  });
+});
+
+describe("a lista de modelos", () => {
+  const modelos: ModeloParaEscolha[] = [
+    {
+      name: "promo_a",
+      language: "pt_BR",
+      category: "MARKETING",
+      previa: "Olá {{1}}",
+      vagas: [vaga("1")],
+      valores_salvos: {},
+    },
+    {
+      name: "promo_b",
+      language: "pt_BR",
+      category: "MARKETING",
+      previa: "Oi {{1}}, de {{2}}",
+      vagas: [vaga("1"), vaga("2")],
+      valores_salvos: {},
+    },
+    {
+      name: "aviso_pedido",
+      language: "pt_BR",
+      category: "UTILITY",
+      previa: "Seu pedido {{1}}",
+      vagas: [vaga("1")],
+      valores_salvos: {},
+    },
+  ];
+  const item = (chave: string, peso = "", origens = {}) => ({ chave, origens, peso });
+
+  it("cada modelo leva o próprio mapa e o peso; a cópia separa as vagas por modelo", () => {
+    const r = pedidoDaEscolha(
+      {
+        itens: [
+          item("promo_a|pt_BR", "2"),
+          item("promo_b|pt_BR", "", { "2": { fonte: "lead", campo: "cidade", fixo: "" } }),
+        ],
+        envios: "",
+      },
+      modelos,
+    );
+    expect(r?.modelo.itens.map((i) => [i.template_name, i.peso, i.variable_map])).toEqual([
+      ["promo_a", 2, { "1": "{{primeiro_nome}}" }],
+      ["promo_b", 1, { "1": "{{primeiro_nome}}", "2": "{{lead.cidade}}" }],
+    ]);
+
+    // A preparação renderiza a cópia inteira; o envio lê só as vagas do modelo escolhido.
+    const preparado = renderizar(r!.corpo, { nome: "Ana Souza", lead: { cidade: "Curitiba" } });
+    expect(preparado.faltando).toEqual([]);
+    expect(valoresDoModelo(preparado.texto, 0)).toEqual({ "1": "Ana" });
+    expect(valoresDoModelo(preparado.texto, 1)).toEqual({ "1": "Ana", "2": "Curitiba" });
+  });
+
+  it("dado que falta em QUALQUER modelo da lista tira a pessoa na preparação", () => {
+    const r = pedidoDaEscolha(
+      {
+        itens: [
+          item("promo_a|pt_BR"),
+          item("promo_b|pt_BR", "", { "2": { fonte: "lead", campo: "cidade", fixo: "" } }),
+        ],
+        envios: "",
+      },
+      modelos,
+    );
+    expect(renderizar(r!.corpo, { nome: "Ana", lead: {} }).faltando).toEqual(["lead.cidade"]);
+  });
+
+  it("a cópia de um modelo só, do formato da etapa anterior, continua sendo lida como o modelo 0", () => {
+    const antiga = serializarModelo({ itens: [ITEM] }, [["1", "2"]]);
+    const preparado = renderizar(antiga, { nome: "Ana", lead: { cidade: "Curitiba" } }).texto;
+    expect(valoresDoModelo(preparado, 0)).toMatchObject({ "1": "Ana", "2": "Curitiba" });
+    expect(valoresDoModelo(preparado, 1)).toEqual({});
+  });
+
+  it("misturar Marketing e Utilidade não deixa salvar, e a tela diz por quê", () => {
+    const escolha = { itens: [item("promo_a|pt_BR"), item("aviso_pedido|pt_BR")], envios: "" };
+    expect(pedidoDaEscolha(escolha, modelos)).toBeNull();
+    expect(problemaDaEscolha(escolha, modelos)).toBe("categorias");
+  });
+
+  it("modelo repetido, linha sem modelo ou proporção fora de 1 a 10 não deixam salvar", () => {
+    expect(
+      problemaDaEscolha(
+        { itens: [item("promo_a|pt_BR"), item("promo_a|pt_BR")], envios: "" },
+        modelos,
+      ),
+    ).toBe("repetido");
+    expect(
+      problemaDaEscolha({ itens: [item("promo_a|pt_BR"), item("")], envios: "" }, modelos),
+    ).toBe("sem_modelo");
+    expect(
+      problemaDaEscolha(
+        { itens: [item("promo_a|pt_BR", "11"), item("promo_b|pt_BR")], envios: "" },
+        modelos,
+      ),
+    ).toBe("peso");
   });
 });

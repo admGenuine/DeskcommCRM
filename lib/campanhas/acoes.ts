@@ -466,11 +466,13 @@ export async function testarAcao(
     };
   }
 
-  // Fork: texto, ou o modelo aprovado com os valores deste contato.
+  // Fork: texto, ou um teste por modelo aprovado da lista, com os valores deste contato.
   const teste = await conteudoDoTeste(admin, c, render.texto);
   if (!teste.ok) return teste;
 
   const boundary = await beginServiceAtOrigin(admin, c.organization_id, linha.id, c.channel_session_id);
+  let status = "desconhecido";
+  for (const conteudo of teste.conteudos) {
   const mensagem = await sendMessageHandler(
     admin,
     {
@@ -482,12 +484,12 @@ export async function testarAcao(
     } as Parameters<typeof sendMessageHandler>[1],
     {
       conversation_id: boundary.conversation_id,
-      ...teste.conteudo,
+      ...conteudo,
       metadata: { source: "campaign_test", campaign_id: c.id },
     } as Parameters<typeof sendMessageHandler>[2],
   );
 
-  const status = (mensagem as { status?: string }).status ?? "desconhecido";
+  status = (mensagem as { status?: string }).status ?? "desconhecido";
   if (status === "failed") {
     return {
       ok: false,
@@ -495,6 +497,7 @@ export async function testarAcao(
       mensagem: "O envio de teste falhou no canal. Verifique a conexão antes de iniciar a campanha.",
       status: 409,
     };
+  }
   }
   return { ok: true, status };
 }

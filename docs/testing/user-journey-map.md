@@ -3089,6 +3089,21 @@ de contrato; pareamento real por código ainda requer confirmação no celular.
 - QA local com Supabase e provedor de teste: entrada assinada, resposta manual, deduplicação, assinatura inválida, conta incorreta e concorrência de registro aprovadas.
 - QA visual local e na instalação self-host concluída; app/worker `788b0fe` saudáveis e testes de webhook do provedor aprovados. DM real e pareamento confirmado no celular permanecem pendentes.
 
+## Campanha com vários modelos em rodízio, 2026-11-13 (fork Genuine)
+
+[P1] Pedido do dono: uma campanha alterna vários modelos aprovados durante o disparo, numa proporção escolhida, e o relatório mostra o resultado de cada modelo. A tela de criar e editar monta uma lista de até cinco modelos do número, cada um com o próprio mapa de variáveis, a categoria ao lado do nome e o peso na proporção (1 a 10). A lista é de uma categoria só: misturar Marketing e Utilidade é recusado na tela e no servidor. A cada envio, o rodízio (`lib/campanhas/rodizio-de-modelos.ts`) escolhe o modelo mais atrasado em relação ao peso, pulando o que a plataforma pausou; a campanha só pausa quando nenhum está aprovado. O modelo de cada pessoa fica em `campaign_recipient_templates` (migration 9007), e a tela da campanha ganhou "Resultado por modelo". Campanha de um modelo só continua igual, inclusive as já preparadas.
+
+| Caso | Prioridade | Estado |
+| --- | --- | --- |
+| A proporção: 1 : 1 alterna, 2 : 1 sai A, A, B, 3 : 2 : 1 fecha a cada seis, 100 envios ficam a um envio da proporção em qualquer trecho; modelo pausado é pulado e, quando volta, sai até alcançar a proporção; nenhum aprovado devolve ninguém | `[P1]` | `lib/campanhas/rodizio-de-modelos.test.ts` |
+| A rodada de verdade com dois modelos: A, A, B, A, A, B em três rodadas, valores de cada modelo, registro de cada pessoa, modelo pausado pulado, nenhum aprovado pausa, pedido de saída não gasta a vez | `[P1]` | `tests/unit/campanha-com-modelo-rodada.test.ts` (rodízio e registro sabotados, os dois pegos) |
+| A lista na criação: pesos gravados, Marketing com Utilidade recusado, modelo pausado recusado | `[P1]` | `tests/unit/campanha-com-modelo-decisoes.test.ts` |
+| A cópia separa as vagas por modelo; a cópia da etapa de um modelo só continua lida; falta de dado em qualquer modelo exclui na preparação; a tela recusa lista misturada, repetida ou com proporção fora da faixa | `[P1]` | `lib/campanhas/corpo-do-modelo.test.ts` |
+| O relatório por modelo: conta por carimbo, falha no modelo que tentou, taxa sem denominador vazia | `[P1]` | `lib/campanhas/metricas-por-modelo.test.ts` |
+| A tabela de registro e a chave nova da lista: RLS, só leitura para o navegador, cascata, limites | `[P1]` | `tests/invariants/campanha-com-modelo.test.ts` (Postgres do CI) |
+
+Prévia visual nesta máquina: a tela de criar com dois modelos de exemplo, fotografada no claro a 1280 px e 390 px. Não medido aqui: a tela com banco de verdade, a chamada real à Meta e os invariantes de banco, que rodam no CI.
+
 ## Campanha com modelo aprovado na API oficial, 2026-11-12 (fork Genuine)
 
 [P1] Pedido do dono: na API oficial do WhatsApp a campanha só entrega fora da janela de 24 horas se mandar um modelo aprovado, e até aqui ela só mandava texto livre. Agora, quando o número escolhido só entrega modelo (a API oficial e os parceiros dela), a tela de criar e editar troca o texto pela escolha do modelo aprovado daquele número, com a origem de cada variável (nome, primeiro nome, saudação, campo do contato, campo do negócio ou valor fixo; mídia do cabeçalho pelo link salvo no modelo) e os envios por rodada (padrão 10, de 1 a 60). Campanha de texto nesse número é recusada com a mensagem que explica por quê. Número não oficial continua igual. A escolha mora em `campaign_message_templates` (migration 9006); o texto da campanha guarda uma cópia derivada, que a preparação do original congela por pessoa.

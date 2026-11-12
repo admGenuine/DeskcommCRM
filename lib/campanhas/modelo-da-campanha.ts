@@ -1,5 +1,6 @@
 /**
- * CAMPANHA COM MODELO APROVADO (fork da Genuine, 2026-11-12).
+ * CAMPANHA COM MODELO APROVADO (fork da Genuine, 2026-11-12; vários modelos
+ * em rodízio, com proporção, em 2026-11-13).
  *
  * Na API oficial do WhatsApp, e nos parceiros que a intermediam, a plataforma
  * só entrega texto livre a quem escreveu nas últimas 24 horas; para todo o
@@ -9,8 +10,10 @@
  *
  * ═══ A escolha mora numa tabela do fork; o texto da campanha leva uma cópia ═══
  *
- * A fonte da verdade é `campaign_message_templates` (migration 9006): o modelo,
- * de onde sai cada variável e quantos envios a rodada faz por vez. A campanha
+ * A fonte da verdade é `campaign_message_templates` (migrations 9006 e 9007):
+ * a lista de modelos, de onde sai cada variável de cada um, o peso de cada um
+ * na proporção e quantos envios a rodada faz por vez. Qual modelo saiu para
+ * cada pessoa fica em `campaign_recipient_templates` (9007). A campanha
  * do original congela o texto de cada pessoa na PREPARAÇÃO, confere ali quem
  * não tem o dado que a mensagem usa (motivo `variavel_ausente`) e resolve a
  * saudação no ENVIO. Para reusar tudo isso sem mexer na preparação, o texto da
@@ -37,6 +40,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { ApiErrorCode } from "@/lib/api/errors";
+import { logger } from "@/lib/logger";
 import {
   MODELO_APROVADO,
   conexaoExigeModelo,
@@ -49,13 +53,18 @@ import {
 import {
   ENVIOS_POR_RODADA_MAXIMO,
   ENVIOS_POR_RODADA_PADRAO,
+  MENSAGEM_CATEGORIAS_MISTURADAS,
+  ROTULO_DA_CATEGORIA,
+  categoriasMisturadas,
   conferirMapa,
   ehCorpoDeModelo,
   modeloDaCampanhaSchema,
   serializarModelo,
-  valoresDoCorpo,
+  valoresDoModelo,
+  type ItemDoModelo,
   type ModeloDaCampanha,
 } from "./corpo-do-modelo";
+import { escolherModelo } from "./rodizio-de-modelos";
 
 export * from "./corpo-do-modelo";
 
@@ -76,15 +85,16 @@ function listaDeVagas(vagas: readonly VagaDoModelo[]): string {
 
 /**
  * O conteúdo que a campanha pode gravar, dados o número principal, os números
- * extras do rodízio e o modelo pedido (ou nenhum).
+ * extras do rodízio e a lista de modelos pedida (ou nenhuma).
  *
  *  - Número que exige modelo, sem modelo: recusa, com a mensagem que explica.
  *  - Modelo num número que manda texto livre: recusa (o envio não teria como sair).
  *  - Modelo que não está aprovado neste número, ou em algum número do rodízio:
  *    recusa, nomeando qual.
- *  - Vaga sem valor ou link inválido: recusa, nomeando as vagas.
+ *  - Lista que mistura categorias: recusa.
+ *  - Vaga sem valor ou link inválido: recusa, nomeando o modelo e as vagas.
  *
- * Devolve a escolha limpa e a cópia para `message_body`, ou `null` quando a
+ * Devolve a lista limpa e a cópia para `message_body`, ou `null` quando a
  * campanha é de texto e nada aqui se aplica.
  */
 export async function decidirConteudo(
@@ -111,105 +121,137 @@ export async function decidirConteudo(
     );
   }
 
-  const pedido = entrada.modelo;
-  const definicao = await modeloDaConexao(admin, {
-    organizationId: entrada.organizationId,
-    channelSessionId: entrada.canalPrincipal,
-    name: pedido.template_name,
-    language: pedido.template_language,
-  });
-  if (!definicao) {
-    return recusa(
-      `O modelo "${pedido.template_name}" (${pedido.template_language}) não está na lista desta conexão. Sincronize os modelos e tente de novo.`,
-    );
-  }
-  if (definicao.status !== MODELO_APROVADO) {
-    return recusa(
-      `O modelo "${pedido.template_name}" está com o status ${definicao.status} na plataforma. Só modelo aprovado pode ir para a campanha.`,
-    );
-  }
-
-  // Cada número do rodízio fala com a pessoa pela própria conta: o modelo tem de
-  // estar aprovado em todos, senão a parte da lista que cair nele falha.
-  for (const extra of entrada.extras) {
-    if (extra === entrada.canalPrincipal) continue;
-    const exigeNoExtra = await conexaoExigeModelo(admin, entrada.organizationId, extra);
-    const noExtra = exigeNoExtra
-      ? await modeloDaConexao(admin, {
-          organizationId: entrada.organizationId,
-          channelSessionId: extra,
-          name: pedido.template_name,
-          language: pedido.template_language,
-        })
-      : null;
-    if (!noExtra || noExtra.status !== MODELO_APROVADO) {
+  const extras = entrada.extras.filter((e) => e !== entrada.canalPrincipal);
+  for (const extra of extras) {
+    if (!(await conexaoExigeModelo(admin, entrada.organizationId, extra))) {
       return recusa(
-        `Um dos números do rodízio não tem o modelo "${pedido.template_name}" aprovado. Tire esse número da campanha ou aprove o modelo na conta dele.`,
+        "Um dos números do rodízio manda texto livre e não usa modelos aprovados. Tire esse número da campanha.",
       );
     }
   }
 
-  const conferencia = conferirMapa(definicao.vagas, pedido.variable_map, definicao.valoresSalvos);
-  if (!conferencia.ok) {
-    const partes: string[] = [];
-    if (conferencia.faltando.length > 0) {
-      partes.push(`Falta dizer de onde sai: ${listaDeVagas(conferencia.faltando)}.`);
-    }
-    if (conferencia.linkInvalido.length > 0) {
-      partes.push(
-        `Estas vagas de mídia precisam de um link que comece com https://: ${listaDeVagas(conferencia.linkInvalido)}.`,
+  const itens: ItemDoModelo[] = [];
+  const ordens: string[][] = [];
+  const categorias: (string | null)[] = [];
+  for (const pedido of entrada.modelo.itens) {
+    const definicao = await modeloDaConexao(admin, {
+      organizationId: entrada.organizationId,
+      channelSessionId: entrada.canalPrincipal,
+      name: pedido.template_name,
+      language: pedido.template_language,
+    });
+    if (!definicao) {
+      return recusa(
+        `O modelo "${pedido.template_name}" (${pedido.template_language}) não está na lista desta conexão. Sincronize os modelos e tente de novo.`,
       );
     }
-    return recusa(partes.join(" "));
+    if (definicao.status !== MODELO_APROVADO) {
+      return recusa(
+        `O modelo "${pedido.template_name}" está com o status ${definicao.status} na plataforma. Só modelo aprovado pode ir para a campanha.`,
+      );
+    }
+
+    // Cada número do rodízio fala com a pessoa pela própria conta: o modelo tem
+    // de estar aprovado em todos, senão a parte da lista que cair nele falha.
+    for (const extra of extras) {
+      const noExtra = await modeloDaConexao(admin, {
+        organizationId: entrada.organizationId,
+        channelSessionId: extra,
+        name: pedido.template_name,
+        language: pedido.template_language,
+      });
+      if (!noExtra || noExtra.status !== MODELO_APROVADO) {
+        return recusa(
+          `Um dos números do rodízio não tem o modelo "${pedido.template_name}" aprovado. Tire esse número da campanha ou aprove o modelo na conta dele.`,
+        );
+      }
+    }
+
+    const conferencia = conferirMapa(definicao.vagas, pedido.variable_map, definicao.valoresSalvos);
+    if (!conferencia.ok) {
+      const partes: string[] = [];
+      if (conferencia.faltando.length > 0) {
+        partes.push(
+          `No modelo "${pedido.template_name}", falta dizer de onde sai: ${listaDeVagas(conferencia.faltando)}.`,
+        );
+      }
+      if (conferencia.linkInvalido.length > 0) {
+        partes.push(
+          `No modelo "${pedido.template_name}", estas vagas de mídia precisam de um link que comece com https://: ${listaDeVagas(conferencia.linkInvalido)}.`,
+        );
+      }
+      return recusa(partes.join(" "));
+    }
+
+    itens.push({
+      template_name: definicao.name,
+      template_language: definicao.language,
+      variable_map: conferencia.mapa,
+      peso: pedido.peso ?? 1,
+    });
+    ordens.push(definicao.vagas.map((v) => v.chave));
+    categorias.push(definicao.category);
+  }
+
+  const misturadas = categoriasMisturadas(categorias);
+  if (misturadas) {
+    const nomes = misturadas.map((c) => ROTULO_DA_CATEGORIA[c] ?? c).join(" e ");
+    return recusa(`${MENSAGEM_CATEGORIAS_MISTURADAS} Hoje a lista mistura ${nomes}.`);
   }
 
   const modelo: ModeloDaCampanha = {
-    template_name: definicao.name,
-    template_language: definicao.language,
-    variable_map: conferencia.mapa,
-    envios_por_rodada: pedido.envios_por_rodada ?? null,
+    itens,
+    envios_por_rodada: entrada.modelo.envios_por_rodada ?? null,
   };
-  return {
-    ok: true,
-    modelo,
-    corpo: serializarModelo(
-      modelo,
-      definicao.vagas.map((v) => v.chave),
-    ),
-  };
+  return { ok: true, modelo, corpo: serializarModelo(modelo, ordens) };
 }
 
 // ─── Persistência ────────────────────────────────────────────────────────────
 
+/**
+ * Uma linha por modelo da lista (migration 9007), na ordem de `posicao`.
+ * `envios_por_rodada` é da campanha inteira: grava-se igual em todas as linhas
+ * e lê-se o da primeira.
+ */
 const TABELA = "campaign_message_templates";
-const COLUNAS = "campaign_id, template_name, template_language, variable_map, envios_por_rodada";
+const COLUNAS =
+  "campaign_id, posicao, peso, template_name, template_language, variable_map, envios_por_rodada";
 
 interface LinhaDoModelo {
   campaign_id: string;
+  posicao: number | null;
+  peso: number | null;
   template_name: string;
   template_language: string;
   variable_map: unknown;
   envios_por_rodada: number | null;
 }
 
-function paraModelo(l: LinhaDoModelo): ModeloDaCampanha {
-  const mapa =
-    l.variable_map && typeof l.variable_map === "object" && !Array.isArray(l.variable_map)
-      ? Object.fromEntries(
-          Object.entries(l.variable_map as Record<string, unknown>).filter(
-            (e): e is [string, string] => typeof e[1] === "string",
-          ),
-        )
-      : {};
+function mapaDaLinha(valor: unknown): Record<string, string> {
+  return valor && typeof valor === "object" && !Array.isArray(valor)
+    ? Object.fromEntries(
+        Object.entries(valor as Record<string, unknown>).filter(
+          (e): e is [string, string] => typeof e[1] === "string",
+        ),
+      )
+    : {};
+}
+
+function paraModelo(linhas: readonly LinhaDoModelo[]): ModeloDaCampanha | null {
+  if (linhas.length === 0) return null;
+  const ordenadas = [...linhas].sort((a, b) => (a.posicao ?? 0) - (b.posicao ?? 0));
   return {
-    template_name: l.template_name,
-    template_language: l.template_language,
-    variable_map: mapa,
-    envios_por_rodada: l.envios_por_rodada,
+    itens: ordenadas.map((l) => ({
+      template_name: l.template_name,
+      template_language: l.template_language,
+      variable_map: mapaDaLinha(l.variable_map),
+      peso: l.peso ?? 1,
+    })),
+    envios_por_rodada: ordenadas[0]!.envios_por_rodada,
   };
 }
 
-/** O modelo desta campanha, ou `null` (campanha de texto). Lança se a leitura falhar. */
+/** A lista de modelos desta campanha, ou `null` (campanha de texto). Lança se a leitura falhar. */
 export async function lerModeloDaCampanha(
   admin: SupabaseClient,
   organizationId: string,
@@ -219,13 +261,12 @@ export async function lerModeloDaCampanha(
     .from(TABELA)
     .select(COLUNAS)
     .eq("organization_id", organizationId)
-    .eq("campaign_id", campanhaId)
-    .maybeSingle();
+    .eq("campaign_id", campanhaId);
   if (error) throw new Error(`modelo da campanha: leitura — ${error.message}`);
-  return data ? paraModelo(data as unknown as LinhaDoModelo) : null;
+  return paraModelo((data ?? []) as unknown as LinhaDoModelo[]);
 }
 
-/** Os modelos de várias campanhas, numa consulta (a rodada lê as que estão rodando). */
+/** As listas de várias campanhas, numa consulta (a rodada lê as que estão rodando). */
 export async function lerModelosDasCampanhas(
   admin: SupabaseClient,
   campanhaIds: readonly string[],
@@ -236,28 +277,46 @@ export async function lerModelosDasCampanhas(
     .select(COLUNAS)
     .in("campaign_id", [...campanhaIds]);
   if (error) throw new Error(`modelo da campanha: leitura — ${error.message}`);
-  return new Map(
-    ((data ?? []) as unknown as LinhaDoModelo[]).map((l) => [l.campaign_id, paraModelo(l)]),
-  );
+  const porCampanha = new Map<string, LinhaDoModelo[]>();
+  for (const l of (data ?? []) as unknown as LinhaDoModelo[]) {
+    porCampanha.set(l.campaign_id, [...(porCampanha.get(l.campaign_id) ?? []), l]);
+  }
+  const resultado = new Map<string, ModeloDaCampanha>();
+  for (const [id, linhas] of porCampanha) {
+    const modelo = paraModelo(linhas);
+    if (modelo) resultado.set(id, modelo);
+  }
+  return resultado;
 }
 
 export async function gravarModeloDaCampanha(
   admin: SupabaseClient,
   entrada: { organizationId: string; campanhaId: string; modelo: ModeloDaCampanha },
 ): Promise<void> {
+  const agora = new Date().toISOString();
   const { error } = await admin.from(TABELA).upsert(
-    {
+    entrada.modelo.itens.map((item, posicao) => ({
       campaign_id: entrada.campanhaId,
       organization_id: entrada.organizationId,
-      template_name: entrada.modelo.template_name,
-      template_language: entrada.modelo.template_language,
-      variable_map: entrada.modelo.variable_map,
+      posicao,
+      peso: item.peso ?? 1,
+      template_name: item.template_name,
+      template_language: item.template_language,
+      variable_map: item.variable_map,
       envios_por_rodada: entrada.modelo.envios_por_rodada ?? null,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "campaign_id" },
+      updated_at: agora,
+    })),
+    { onConflict: "campaign_id,posicao" },
   );
   if (error) throw new Error(`modelo da campanha: gravação — ${error.message}`);
+  // A lista encolheu: as posições que sobraram saem.
+  const { error: erroDaSobra } = await admin
+    .from(TABELA)
+    .delete()
+    .eq("organization_id", entrada.organizationId)
+    .eq("campaign_id", entrada.campanhaId)
+    .gte("posicao", entrada.modelo.itens.length);
+  if (erroDaSobra) throw new Error(`modelo da campanha: gravação — ${erroDaSobra.message}`);
 }
 
 export async function apagarModeloDaCampanha(
@@ -286,20 +345,80 @@ export type ConteudoDoEnvio =
       template_values: Record<string, string>;
     };
 
+/** Onde o envio acontece: a conexão escolhida e, no envio real, a campanha e a pessoa. */
+export interface ConexaoDoEnvio {
+  organizationId: string;
+  channelSessionId: string;
+  /** No envio real: o modelo usado fica registrado para o relatório e o rodízio. */
+  campanhaId?: string;
+  destinatarioId?: string;
+}
+
+/** Cada modelo da lista, como está na plataforma para este número agora. */
+async function situacaoDosModelos(
+  admin: SupabaseClient,
+  conexao: { organizationId: string; channelSessionId: string },
+  modelo: ModeloDaCampanha,
+): Promise<(ModeloDaConexao | null)[]> {
+  const definicoes: (ModeloDaConexao | null)[] = [];
+  for (const item of modelo.itens) {
+    definicoes.push(
+      await modeloDaConexao(admin, {
+        organizationId: conexao.organizationId,
+        channelSessionId: conexao.channelSessionId,
+        name: item.template_name,
+        language: item.template_language,
+      }),
+    );
+  }
+  return definicoes;
+}
+
+/** Quantos envios desta campanha já usaram cada modelo da lista, na ordem da lista. */
+async function enviosPorModelo(
+  admin: SupabaseClient,
+  organizationId: string,
+  campanhaId: string,
+  modelo: ModeloDaCampanha,
+): Promise<number[]> {
+  const contagens: number[] = [];
+  for (const item of modelo.itens) {
+    const { count, error } = await admin
+      .from(TABELA_DO_REGISTRO)
+      .select("recipient_id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .eq("campaign_id", campanhaId)
+      .eq("template_name", item.template_name)
+      .eq("template_language", item.template_language);
+    if (error) throw new Error(`modelo da campanha: contagem — ${error.message}`);
+    contagens.push(count ?? 0);
+  }
+  return contagens;
+}
+
+/** Onde fica registrado qual modelo saiu para cada pessoa (migration 9007). */
+const TABELA_DO_REGISTRO = "campaign_recipient_templates";
+
 /**
  * O conteúdo do envio de uma pessoa. Sem modelo, é o texto de sempre. Com
- * modelo, os valores saem da cópia já renderizada, e o `body` é o texto do
- * modelo com eles aplicados: é o que a conversa mostra, e o envio de modelo
- * exige um `body`.
+ * modelo, o rodízio (`rodizio-de-modelos.ts`) escolhe qual sai, os valores
+ * daquele modelo saem da cópia já renderizada, e o `body` é o texto do modelo
+ * com eles aplicados: é o que a conversa mostra, e o envio de modelo exige um
+ * `body`. No envio real, o modelo usado fica registrado ANTES de sair: uma
+ * falha depois também conta para ele no relatório.
  *
- * Lança quando o modelo não está mais no espelho desta conexão: o chamador já
- * trata exceção de envio como falha do destinatário.
+ * `posicaoFixa` é para o envio de teste, que manda um modelo escolhido.
+ *
+ * Lança quando nenhum modelo da lista está aprovado neste número, ou quando o
+ * escolhido saiu do espelho: o chamador já trata exceção de envio como falha
+ * do destinatário.
  */
 export async function conteudoDoEnvio(
   admin: SupabaseClient,
-  conexao: { organizationId: string; channelSessionId: string },
+  conexao: ConexaoDoEnvio,
   corpoRenderizado: string,
   modelo: ModeloDaCampanha | null,
+  posicaoFixa?: number,
 ): Promise<ConteudoDoEnvio> {
   if (!modelo) {
     // Cópia de modelo sem a escolha ao lado (uma linha apagada à mão, uma
@@ -312,43 +431,68 @@ export async function conteudoDoEnvio(
     }
     return { type: "text", body: corpoRenderizado };
   }
-  const definicao = await modeloDaConexao(admin, {
-    organizationId: conexao.organizationId,
-    channelSessionId: conexao.channelSessionId,
-    name: modelo.template_name,
-    language: modelo.template_language,
-  });
-  if (!definicao) {
-    throw new Error(
-      `template_missing: ${modelo.template_name} (${modelo.template_language}) não está no espelho desta conexão`,
+
+  const definicoes = await situacaoDosModelos(admin, conexao, modelo);
+  let posicao: number | null;
+  if (posicaoFixa !== undefined) {
+    posicao = posicaoFixa;
+  } else if (modelo.itens.length === 1) {
+    // Um modelo só: sem rodízio nem contagem, como na etapa anterior.
+    posicao = definicoes[0]?.status === MODELO_APROVADO ? 0 : null;
+  } else {
+    const enviados =
+      conexao.campanhaId !== undefined
+        ? await enviosPorModelo(admin, conexao.organizationId, conexao.campanhaId, modelo)
+        : modelo.itens.map(() => 0);
+    posicao = escolherModelo(
+      modelo.itens.map((item, i) => ({
+        posicao: i,
+        peso: item.peso ?? 1,
+        enviados: enviados[i] ?? 0,
+        aprovado: definicoes[i]?.status === MODELO_APROVADO,
+      })),
     );
   }
-  const valores = valoresDoCorpo(corpoRenderizado);
+  const item = posicao === null ? undefined : modelo.itens[posicao];
+  const definicao = posicao === null ? null : definicoes[posicao];
+  if (posicao === null || !item) {
+    throw new Error("modelos_nao_aprovados: nenhum modelo da lista está aprovado neste número");
+  }
+  if (!definicao) {
+    throw new Error(
+      `template_missing: ${item.template_name} (${item.template_language}) não está no espelho desta conexão`,
+    );
+  }
+
+  if (conexao.campanhaId && conexao.destinatarioId) {
+    const { error } = await admin.from(TABELA_DO_REGISTRO).upsert(
+      {
+        recipient_id: conexao.destinatarioId,
+        campaign_id: conexao.campanhaId,
+        organization_id: conexao.organizationId,
+        template_name: item.template_name,
+        template_language: item.template_language,
+      },
+      { onConflict: "recipient_id" },
+    );
+    // Sem o registro o relatório e a proporção perdem um envio, mas a mensagem
+    // não deixa de ser certa: o aviso fica no log e o envio segue.
+    if (error) {
+      logger.warn("[campanha] registro do modelo usado falhou", {
+        campanha: conexao.campanhaId,
+        motivo: error.message,
+      });
+    }
+  }
+
+  const valores = valoresDoModelo(corpoRenderizado, posicao);
   return {
     type: "template",
-    body: textoDoModelo(definicao, valores) || `${modelo.template_name}`,
-    template_name: modelo.template_name,
-    template_language: modelo.template_language,
+    body: textoDoModelo(definicao, valores) || `${item.template_name}`,
+    template_name: item.template_name,
+    template_language: item.template_language,
     template_values: valores,
   };
-}
-
-/**
- * O modelo ainda pode sair por este número? Lido do espelho, que o webhook de
- * status da plataforma atualiza quando ela pausa ou desativa o modelo.
- */
-export async function statusDoModeloNaConexao(
-  admin: SupabaseClient,
-  conexao: { organizationId: string; channelSessionId: string },
-  modelo: ModeloDaCampanha,
-): Promise<{ aprovado: boolean; status: string | null }> {
-  const definicao: ModeloDaConexao | null = await modeloDaConexao(admin, {
-    organizationId: conexao.organizationId,
-    channelSessionId: conexao.channelSessionId,
-    name: modelo.template_name,
-    language: modelo.template_language,
-  });
-  return { aprovado: definicao?.status === MODELO_APROVADO, status: definicao?.status ?? null };
 }
 
 /** Quantos envios esta campanha faz numa rodada. Campanha de texto: um, como sempre. */
@@ -409,10 +553,12 @@ export async function repetirNaRodada<R extends ResultadoDeUmaVez>(
 }
 
 /**
- * Antes de enviar: o modelo ainda está aprovado no número principal? Se a
- * plataforma o pausou ou desativou (o webhook de status grava no espelho), a
- * campanha PAUSA com o motivo, em vez de marcar como falha cada pessoa que
- * restava. Quem opera troca o modelo ou espera a plataforma liberar, e retoma.
+ * Antes de enviar: algum modelo da lista ainda está aprovado no número
+ * principal? Modelo pausado ou desativado pela plataforma (o webhook de status
+ * grava no espelho) é pulado pelo rodízio, e o disparo segue com os outros. Só
+ * quando NENHUM está aprovado a campanha PAUSA, com o motivo, em vez de marcar
+ * como falha cada pessoa que restava. Quem opera troca o modelo ou espera a
+ * plataforma liberar, e retoma.
  *
  * Devolve o detalhe da rodada quando pausou, `null` quando pode seguir.
  */
@@ -422,54 +568,72 @@ export async function pausarSeOModeloSaiu(
   modelo: ModeloDaCampanha,
   agora: Date,
 ): Promise<string | null> {
-  const { aprovado, status } = await statusDoModeloNaConexao(
+  const definicoes = await situacaoDosModelos(
     admin,
     { organizationId: campanha.organization_id, channelSessionId: campanha.channel_session_id },
     modelo,
   );
-  if (aprovado) return null;
-  const situacao = status ?? "fora da lista";
+  if (definicoes.some((d) => d?.status === MODELO_APROVADO)) return null;
+
+  const um = modelo.itens.length === 1;
+  const situacao = definicoes[0]?.status ?? "fora da lista";
+  const primeiro = modelo.itens[0]!;
   await admin
     .from("campaigns")
     .update({
       status: "paused",
       paused_at: agora.toISOString(),
-      failure_code: `modelo_nao_aprovado:${situacao}`.slice(0, 120),
-      failure_detail: `O modelo "${modelo.template_name}" (${modelo.template_language}) está ${situacao} na plataforma. Troque o modelo ou espere a liberação e retome a campanha.`,
+      failure_code: (um ? `modelo_nao_aprovado:${situacao}` : "modelos_nao_aprovados").slice(
+        0,
+        120,
+      ),
+      failure_detail: um
+        ? `O modelo "${primeiro.template_name}" (${primeiro.template_language}) está ${situacao} na plataforma. Troque o modelo ou espere a liberação e retome a campanha.`
+        : `Nenhum dos ${modelo.itens.length} modelos da campanha está aprovado na plataforma agora. Troque os modelos ou espere a liberação e retome a campanha.`,
     })
     .eq("id", campanha.id)
     .eq("organization_id", campanha.organization_id)
     .eq("status", "running");
-  return `pausada:modelo_${situacao}`;
+  return um ? `pausada:modelo_${situacao}` : "pausada:modelos_nao_aprovados";
 }
 
 // ─── O teste e a cópia da campanha ───────────────────────────────────────────
 
 /**
- * O conteúdo do envio de TESTE: o mesmo do envio real, com uma conferência a
- * mais na frente. Sem ela, um modelo pausado viraria "o envio de teste falhou
- * no canal", sem dizer que o problema é o modelo.
+ * Os conteúdos do envio de TESTE: um por modelo da lista, para quem opera ver
+ * cada um como a pessoa vai receber. Todos precisam estar aprovados; sem esta
+ * conferência, um modelo pausado viraria "o envio de teste falhou no canal",
+ * sem dizer que o problema é o modelo. Campanha de texto: um conteúdo, o texto.
  */
 export async function conteudoDoTeste(
   admin: SupabaseClient,
   campanha: { id: string; organization_id: string; channel_session_id: string },
   textoRenderizado: string,
-): Promise<{ ok: true; conteudo: ConteudoDoEnvio } | Recusa> {
+): Promise<{ ok: true; conteudos: ConteudoDoEnvio[] } | Recusa> {
   const modelo = await lerModeloDaCampanha(admin, campanha.organization_id, campanha.id);
   const conexao = {
     organizationId: campanha.organization_id,
     channelSessionId: campanha.channel_session_id,
   };
-  if (modelo) {
-    const { aprovado, status } = await statusDoModeloNaConexao(admin, conexao, modelo);
-    if (!aprovado) {
+  try {
+    if (!modelo) {
+      return {
+        ok: true,
+        conteudos: [await conteudoDoEnvio(admin, conexao, textoRenderizado, null)],
+      };
+    }
+    const definicoes = await situacaoDosModelos(admin, conexao, modelo);
+    const fora = modelo.itens.findIndex((_, i) => definicoes[i]?.status !== MODELO_APROVADO);
+    if (fora >= 0) {
       return recusa(
-        `O modelo "${modelo.template_name}" está ${status ?? "fora da lista desta conexão"} na plataforma. Troque o modelo antes de testar.`,
+        `O modelo "${modelo.itens[fora]!.template_name}" está ${definicoes[fora]?.status ?? "fora da lista desta conexão"} na plataforma. Troque o modelo antes de testar.`,
       );
     }
-  }
-  try {
-    return { ok: true, conteudo: await conteudoDoEnvio(admin, conexao, textoRenderizado, modelo) };
+    const conteudos: ConteudoDoEnvio[] = [];
+    for (let i = 0; i < modelo.itens.length; i++) {
+      conteudos.push(await conteudoDoEnvio(admin, conexao, textoRenderizado, modelo, i));
+    }
+    return { ok: true, conteudos };
   } catch (err) {
     return recusa(err instanceof Error ? err.message : String(err));
   }
