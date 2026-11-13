@@ -3114,6 +3114,7 @@ Não medido aqui: a criação real na Meta, a aprovação e a recusa de verdade,
 | Recusa na resposta do envio: marca o modelo, a pessoa volta e recebe o outro modelo, uma mensagem nova, sem duas entregas | `[P1]` | `tests/unit/campanha-modelo-indisponivel.test.ts` |
 | Recusa pelo aviso posterior: a pessoa volta e a mensagem recusada deixa de apontar para ela | `[P1]` | `tests/unit/campanha-modelo-indisponivel.test.ts` |
 | Quem tem entrega, leitura ou resposta nunca volta; falha que não é de modelo continua falha; teto de três voltas | `[P1]` | `tests/unit/campanha-modelo-indisponivel.test.ts` |
+| Modelo apagado direto na Meta (132001) sai do rodízio na primeira recusa, como o pausado; antes só a sincronização de 10 minutos o tirava, e outras pessoas caíam nele gastando as voltas (achado ao montar o roteiro de testes, 13/11) | `[P1]` | `tests/unit/campanha-modelo-indisponivel.test.ts` (voltar ao comportamento antigo pega) |
 | Todos indisponíveis: a campanha pausa, avisa na Central e ninguém fica como falha | `[P1]` | `tests/unit/campanha-modelo-indisponivel.test.ts` |
 | Modelo que volta: retoma a campanha pausada pelo sistema, não a pausada por uma pessoa, e volta ao rodízio | `[P1]` | `tests/unit/campanha-modelo-indisponivel.test.ts` |
 | Campanha concluída com recusa atrasada é reaberta pela sincronização | `[P1]` | `tests/unit/campanha-modelo-indisponivel.test.ts` |
