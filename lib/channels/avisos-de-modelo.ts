@@ -6,8 +6,8 @@
  *
  *   - os avisos de QUALIDADE e de CATEGORIA do webhook (`TemplateQualityEvent`,
  *     `TemplateCategoryEvent`), que até aqui eram descartados;
- *   - a RECUSA de um envio porque o modelo está pausado ou desativado
- *     (códigos 132015 e 132016 da Meta), que marca o modelo na hora, sem
+ *   - a RECUSA de um envio porque o modelo está pausado, desativado ou não
+ *     existe mais (códigos 132015, 132016 e 132001 da Meta), que marca o modelo na hora, sem
  *     esperar o aviso de status chegar.
  *
  * O espelho (`meta_templates`) continua sendo a cópia do que a plataforma diz;
@@ -118,7 +118,7 @@ export async function aplicarAvisoDeModelo(
 }
 
 /**
- * A plataforma recusou um envio porque o modelo está pausado ou desativado: o
+ * A plataforma recusou um envio porque o modelo está pausado, desativado ou não existe mais: o
  * espelho passa a dizer isso já, para o rodízio de modelos não escolhê-lo de
  * novo enquanto o aviso de status não chega.
  */

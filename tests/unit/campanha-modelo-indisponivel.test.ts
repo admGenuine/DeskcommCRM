@@ -280,6 +280,30 @@ describe("modelo pausado: a pessoa volta à fila e recebe o próximo modelo", ()
     ]);
   });
 
+  it("modelo apagado na Meta (132001) sai do rodízio na primeira recusa: ninguém mais cai nele", async () => {
+    // O caso do roteiro de testes: apagado direto no WhatsApp Manager, o
+    // espelho ainda o achava aprovado. Antes, só a sincronização (10 min) o
+    // tirava, e cada pessoa que caía nele gastava uma das 3 voltas.
+    borda.recusar.set("promo_a", "132001");
+    const { admin, tabelas } = cenario({ pessoas: [pessoa(1), pessoa(2), pessoa(3)] });
+
+    for (let i = 0; i < 4; i++) await rodarUmaRodadaDeCampanha(admin, AGORA);
+
+    expect(statusDoEspelho(tabelas, "promo_a")).toBe("DISABLED");
+    expect(borda.envios.filter((e) => e.template_name === "promo_a")).toHaveLength(1);
+    expect(recebidos()).toEqual(
+      new Map([
+        ["dest-1", ["promo_b"]],
+        ["dest-2", ["promo_b"]],
+        ["dest-3", ["promo_b"]],
+      ]),
+    );
+    expect(tabelas.campaign_recipients!.map((d) => d.status)).toEqual(["sent", "sent", "sent"]);
+    expect(tabelas.campaign_template_skips).toEqual([
+      expect.objectContaining({ template_name: "promo_a", motivo: "132001", vezes: 1 }),
+    ]);
+  });
+
   it("recusa pelo AVISO POSTERIOR (o trigger grava 132015 na pessoa): devolve e reenvia com o outro", async () => {
     const { admin, tabelas } = cenario({
       status: { promo_a: "PAUSED" },

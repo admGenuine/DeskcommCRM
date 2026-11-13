@@ -56,9 +56,13 @@ export const TENTATIVAS_POR_INDISPONIBILIDADE = 3;
 const CODIGOS: Record<string, "PAUSED" | "DISABLED" | null> = {
   "132015": "PAUSED",
   "132016": "DISABLED",
-  // Não aprovado ou idioma inexistente: o espelho fica como está, e a
-  // sincronização automática traz o estado verdadeiro.
-  "132001": null,
+  // Não existe no idioma (apagado na Meta) ou não está aprovado. Até
+  // 2026-11-13 o espelho ficava como estava até a sincronização (10 min), e
+  // nesse intervalo o rodízio mandava outras pessoas para o mesmo modelo, cada
+  // recusa gastando uma das 3 voltas delas. Agora ele sai do rodízio na hora,
+  // como o pausado; se o modelo existir e estiver aprovado, a sincronização
+  // seguinte o devolve.
+  "132001": "DISABLED",
 };
 
 const PADRAO = /(?:^|[^0-9])(132015|132016|132001)(?:[^0-9]|$)/;
