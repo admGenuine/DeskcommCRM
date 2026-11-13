@@ -32,6 +32,7 @@ import {
   LIMITE_RODAPE,
   montarComponents,
 } from "@/lib/channels/template-conteudo";
+import { validarModelo } from "@/lib/channels/regras-do-modelo";
 
 describe("de onde vêm as definições", () => {
   it("canal intermediado busca na rota do parceiro", () => {
@@ -185,11 +186,20 @@ describe("o conteúdo da definição, e o campo que causava as recusas", () => {
     expect(Array.isArray(comps[0]?.example?.body_text?.[0])).toBe(true);
   });
 
-  it("campo em branco vira marcador, não vazio — vazio também é recusado", () => {
+  it("campo em branco fica vazio, e a tela trava o envio pedindo o exemplo (fork, 2026-11-13)", () => {
+    // Antes o vazio virava o marcador "exemplo", que a revisão também recusa
+    // por não dizer nada. Agora a conferência da Meta trava antes de enviar.
     const comps = montarComponents({ body: "Olá {{1}}", exemplos: ["  "] }) as {
       example?: { body_text: string[][] };
     }[];
-    expect(comps[0]?.example?.body_text?.[0]?.[0]).toBe("exemplo");
+    expect(comps[0]?.example?.body_text?.[0]?.[0]).toBe("");
+    const problemas = validarModelo({
+      name: "oi",
+      language: "pt_BR",
+      category: "UTILITY",
+      components: comps,
+    });
+    expect(problemas.map((p) => p.codigo)).toContain("exemplo_vazio");
   });
 
   it("sem variável NÃO manda example — campo vazio à toa também é recusa", () => {
@@ -304,12 +314,13 @@ describe("o formulário completo — idioma, cabeçalho e botões", () => {
     const c = montarComponents({
       body: "corpo",
       exemplos: [],
+      // Fork (2026-11-13): o teto é o da Meta, 10.
       botoes: [
         { tipo: "quick_reply", texto: "" },
-        { tipo: "quick_reply", texto: "a" },
-        { tipo: "quick_reply", texto: "b" },
-        { tipo: "quick_reply", texto: "c" },
-        { tipo: "quick_reply", texto: "d" },
+        ...Array.from({ length: LIMITE_BOTOES + 1 }, (_, i) => ({
+          tipo: "quick_reply" as const,
+          texto: `r${i}`,
+        })),
       ],
     }) as { type: string; buttons?: unknown[] }[];
     expect(c.find((x) => x.type === "BUTTONS")?.buttons).toHaveLength(LIMITE_BOTOES);

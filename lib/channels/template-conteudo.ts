@@ -43,10 +43,16 @@ export const IDIOMAS_DA_DEFINICAO: { codigo: string; rotulo: string }[] = [
   { codigo: "en_GB", rotulo: "Inglês (Reino Unido)" },
 ];
 
-/** Limites da plataforma. Passar deles é recusa, e o contador evita descobrir tarde. */
+/**
+ * Limites da plataforma. Passar deles é recusa, e o contador evita descobrir tarde.
+ * Fork (2026-11-13): os botões vão a 10 (documentação da Cloud API); as regras
+ * por tipo e de agrupamento moram em `regras-do-modelo.ts`.
+ */
 export const LIMITE_CORPO = 1024;
 export const LIMITE_RODAPE = 60;
-export const LIMITE_BOTOES = 3;
+export const LIMITE_BOTOES = 10;
+export const LIMITE_CABECALHO = 60;
+export const LIMITE_TEXTO_DO_BOTAO = 25;
 
 export type TipoDeBotao = "quick_reply" | "url" | "phone_number";
 
@@ -57,6 +63,8 @@ export interface BotaoDaDefinicao {
   url?: string;
   /** Só para `phone_number`. */
   telefone?: string;
+  /** Só para `url` com `{{1}}` no fim: o exemplo que a revisão exige (fork). */
+  exemplo?: string;
 }
 
 type Bruto = Record<string, unknown>;
@@ -68,11 +76,11 @@ const str = (v: unknown): string | null =>
 
 export interface ConteudoDaDefinicao {
   /** `midiaUrl`: o link de exemplo do cabeçalho de mídia (`header_handle`), quando há. */
-  header: { formato: string; texto: string | null; midiaUrl?: string | null } | null;
+  header: { formato: string; texto: string | null; midiaUrl?: string | null; exemplo?: string | null } | null;
   body: string | null;
   footer: string | null;
   /** `url`/`telefone` só nos botões desses tipos — a edição precisa deles de volta. */
-  botoes: { tipo: string; texto: string; url?: string; telefone?: string }[];
+  botoes: { tipo: string; texto: string; url?: string; telefone?: string; exemplo?: string }[];
   /** Quantos `{{n}}` o corpo declara — o que o envio vai precisar preencher. */
   variaveis: number;
   /** As amostras de cada `{{n}}` que a revisão recebeu (`example.body_text[0]`). */
@@ -103,10 +111,12 @@ export function lerConteudo(components: unknown): ConteudoDaDefinicao {
 
     if (tipo === "HEADER") {
       const handle = obj(c.example)?.header_handle;
+      const amostra = obj(c.example)?.header_text;
       vazio.header = {
         formato: (str(c.format) ?? "TEXT").toUpperCase(),
         texto: str(c.text),
         midiaUrl: Array.isArray(handle) ? str(handle[0]) : null,
+        exemplo: Array.isArray(amostra) ? str(amostra[0]) : null,
       };
     } else if (tipo === "BODY") {
       vazio.body = str(c.text);
@@ -125,6 +135,7 @@ export function lerConteudo(components: unknown): ConteudoDaDefinicao {
           texto: str(o.text) ?? "",
           ...(str(o.url) ? { url: str(o.url)! } : {}),
           ...(str(o.phone_number) ? { telefone: str(o.phone_number)! } : {}),
+          ...(Array.isArray(o.example) && str(o.example[0]) ? { exemplo: str(o.example[0])! } : {}),
         });
       }
     }
@@ -158,7 +169,7 @@ export function montarComponents(input: {
   body: string;
   footer?: string | null;
   exemplos: string[];
-  cabecalho?: { texto?: string | null; midiaUrl?: string | null } | null;
+  cabecalho?: { texto?: string | null; midiaUrl?: string | null; exemplo?: string | null } | null;
   botoes?: BotaoDaDefinicao[];
 }): unknown[] {
   const n = contarVariaveis(input.body);
@@ -181,16 +192,19 @@ export function montarComponents(input: {
     const nCab = contarVariaveis(tituloTexto);
     // O cabeçalho tem exemplo PRÓPRIO (`header_text`), separado do corpo. Usar
     // o do corpo aqui manda a amostra errada e a revisão recusa.
-    if (nCab > 0) cab.example = { header_text: Array.from({ length: nCab }, () => "exemplo") };
+    // Fork (2026-11-13): o exemplo é o que o operador digitou; vazio fica vazio,
+    // e `regras-do-modelo.ts` trava o envio antes de a revisão recusar.
+    if (nCab > 0) cab.example = { header_text: [input.cabecalho?.exemplo?.trim() ?? ""] };
     components.push(cab);
   }
 
   const corpo: Bruto = { type: "BODY", text: input.body };
   if (n > 0) {
-    // Preenche o que faltar com um marcador: o exemplo VAZIO é recusado pela
-    // revisão, e um campo em branco esquecido no formulário não pode virar uma
-    // recusa que só aparece horas depois.
-    const amostras = Array.from({ length: n }, (_, i) => input.exemplos[i]?.trim() || "exemplo");
+    // O exemplo VAZIO é recusado pela revisão. Até o fork, o que faltava virava
+    // o marcador "exemplo", que a revisão também costuma recusar por não dizer
+    // nada; agora fica vazio, e `regras-do-modelo.ts` trava o envio na tela e no
+    // servidor, pedindo o exemplo de verdade.
+    const amostras = Array.from({ length: n }, (_, i) => input.exemplos[i]?.trim() ?? "");
     corpo.example = { body_text: [amostras] };
   }
   components.push(corpo);
@@ -205,7 +219,11 @@ export function montarComponents(input: {
     .slice(0, LIMITE_BOTOES)
     .map((b) => {
       const base: Bruto = { type: b.tipo.toUpperCase(), text: b.texto.trim() };
-      if (b.tipo === "url") base.url = (b.url ?? "").trim();
+      if (b.tipo === "url") {
+        base.url = (b.url ?? "").trim();
+        // Link com variável no fim pede exemplo próprio (fork, 2026-11-13).
+        if (contarVariaveis(base.url as string) > 0) base.example = [(b.exemplo ?? "").trim()];
+      }
       if (b.tipo === "phone_number") base.phone_number = (b.telefone ?? "").trim();
       return base;
     })
@@ -225,6 +243,8 @@ export function montarComponents(input: {
  */
 export function paraFormulario(c: ConteudoDaDefinicao): {
   cabecalho: string;
+  /** O exemplo da variável do cabeçalho (fork). */
+  exemploDoCabecalho: string;
   midiaUrl: string;
   corpo: string;
   rodape: string;
@@ -234,6 +254,7 @@ export function paraFormulario(c: ConteudoDaDefinicao): {
   const tipos: Record<string, TipoDeBotao> = { QUICK_REPLY: "quick_reply", URL: "url", PHONE_NUMBER: "phone_number" };
   return {
     cabecalho: c.header?.formato === "TEXT" ? (c.header.texto ?? "") : "",
+    exemploDoCabecalho: c.header?.formato === "TEXT" ? (c.header.exemplo ?? "") : "",
     midiaUrl: c.header && c.header.formato !== "TEXT" ? (c.header.midiaUrl ?? "") : "",
     corpo: c.body ?? "",
     rodape: c.footer ?? "",
@@ -245,6 +266,7 @@ export function paraFormulario(c: ConteudoDaDefinicao): {
         texto: b.texto,
         ...(b.url ? { url: b.url } : {}),
         ...(b.telefone ? { telefone: b.telefone } : {}),
+        ...(b.exemplo ? { exemplo: b.exemplo } : {}),
       })),
   };
 }

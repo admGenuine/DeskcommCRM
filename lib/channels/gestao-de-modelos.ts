@@ -26,6 +26,8 @@ export const acaoEditarSchema = z.object({
   name: z.string().trim().min(1).max(512),
   language: z.string().trim().min(2).max(15),
   components: z.array(z.record(z.string(), z.unknown())).min(1).max(10),
+  // Fork (2026-11-13): a Meta deixa trocar a categoria de modelo RECUSADO.
+  category: z.enum(["AUTHENTICATION", "MARKETING", "UTILITY"]).optional(),
 });
 
 export const acaoApagarSchema = z.object({
@@ -42,6 +44,12 @@ export interface EscopoDaGestao {
   orgId: string;
   sessionId: string;
   sessionRef: string;
+  /**
+   * Fork (2026-11-13): o espelho do canal OFICIAL não guarda a conexão
+   * (`channel_session_id` nulo; a sincronização grava por conta). Com a conta
+   * aqui, a busca e a limpeza do espelho vão por ela.
+   */
+  wabaId?: string;
 }
 
 /**
@@ -123,16 +131,16 @@ export async function executarGestao(
       sessionRef: escopo.sessionRef,
       name: corpo.name,
       language: corpo.language,
-      patch: { components: corpo.components },
+      patch: { components: corpo.components, ...(corpo.category ? { category: corpo.category } : {}) },
     });
     return { ok: true, acao: "editar" };
   }
 
-  const { data: linhas, error } = await admin
-    .from("meta_templates")
-    .select("id")
-    .eq("organization_id", escopo.orgId)
-    .eq("channel_session_id", escopo.sessionId)
+  // Fork: pela conta no canal oficial, pela conexão nos intermediários.
+  const leitura = admin.from("meta_templates").select("id").eq("organization_id", escopo.orgId);
+  const { data: linhas, error } = await (
+    escopo.wabaId ? leitura.eq("waba_id", escopo.wabaId) : leitura.eq("channel_session_id", escopo.sessionId)
+  )
     .eq("name", corpo.name)
     .eq("language", corpo.language);
   if (error) throw new Error(`modelo_espelho: ${error.message}`);
@@ -152,11 +160,10 @@ export async function executarGestao(
   // O sincronizar só ACRESCENTA modelos desta conta (ausência na lista pode ser
   // erro transitório); o apagado sai do espelho aqui, porque aqui sabemos que
   // ele deixou de existir.
-  const { error: ed } = await admin
-    .from("meta_templates")
-    .delete()
-    .eq("organization_id", escopo.orgId)
-    .eq("channel_session_id", escopo.sessionId)
+  const limpeza = admin.from("meta_templates").delete().eq("organization_id", escopo.orgId);
+  const { error: ed } = await (
+    escopo.wabaId ? limpeza.eq("waba_id", escopo.wabaId) : limpeza.eq("channel_session_id", escopo.sessionId)
+  )
     .eq("name", corpo.name)
     .eq("language", corpo.language);
   if (ed) throw new Error(`modelo_espelho_apagar: ${ed.message}`);

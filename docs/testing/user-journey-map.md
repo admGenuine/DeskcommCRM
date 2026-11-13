@@ -3089,6 +3089,22 @@ de contrato; pareamento real por código ainda requer confirmação no celular.
 - QA local com Supabase e provedor de teste: entrada assinada, resposta manual, deduplicação, assinatura inválida, conta incorreta e concorrência de registro aprovadas.
 - QA visual local e na instalação self-host concluída; app/worker `788b0fe` saudáveis e testes de webhook do provedor aprovados. DM real e pareamento confirmado no celular permanecem pendentes.
 
+## Modelos da Cloud API criados pela tela, 2026-11-13 (fork Genuine)
+
+[P1] Pedido do dono: criar, editar e apagar modelo da conexão direta com a Cloud API pela própria ferramenta, em vez de só espelhar. A aba Templates da Meta passou a usar a mesma tela dos intermediários: nome, idioma, categoria (Marketing, Utilidade ou Autenticação), cabeçalho de texto ou imagem, corpo com variáveis e exemplo de cada uma, rodapé e até 10 botões (link, ligação e resposta rápida), com prévia ao lado. As regras da Meta (lidas na documentação oficial em 13/11/2026) são conferidas na tela e no servidor antes de enviar; o modelo de autenticação usa o texto fixo da Meta e o botão de copiar código. O modelo novo aparece como Pendente, o status muda pelo aviso da Meta e pela sincronização automática, o motivo da recusa fica à vista, e a categoria trocada pela Meta aparece ao lado da escolhida (migration 9009). Editar só onde a Meta deixa (aprovado, recusado ou pausado; categoria só no recusado); apagar leva só aquele idioma e pergunta antes quando o modelo está em uso. Só administrador cria, edita ou apaga.
+
+| Caso | Prioridade | Estado |
+| --- | --- | --- |
+| As regras: nome, tamanhos, variáveis em ordem com exemplo, cabeçalho, rodapé, botões por tipo e agrupamento, link e telefone, autenticação, o que pode editar e apagar | `[P1]` | `tests/unit/regras-do-modelo.test.ts` |
+| Criar: o pedido no formato da Meta, Pendente no espelho, categoria trocada devolvida, recusa da Meta com a frase dela, pedido fora das regras não chega à Meta | `[P1]` | `tests/unit/modelos-oficiais-pela-tela.test.ts` (sabotar a conferência pega) |
+| Editar pelo id da variante certa, só onde a Meta deixa, categoria só no recusado | `[P1]` | `tests/unit/modelos-oficiais-pela-tela.test.ts` |
+| Apagar só o idioma (hsm_id + nome), pergunta quando em uso, desativado não apaga | `[P1]` | `tests/unit/modelos-oficiais-pela-tela.test.ts` (sabotar o hsm_id pega) |
+| Imagem do cabeçalho: lida do nosso storage, só da organização, enviada pelo envio retomável da Meta | `[P1]` | `tests/unit/modelos-oficiais-pela-tela.test.ts` (sabotar a guarda da organização pega) |
+| Só administrador cria e apaga | `[P1]` | `tests/unit/modelos-oficiais-pela-tela.test.ts` |
+| A coluna da categoria escolhida sobrevive à sincronização | `[P1]` | `tests/invariants/modelo-categoria-pedida.test.ts` (Postgres do CI) |
+
+Não medido aqui: a criação real na Meta, a aprovação e a recusa de verdade, o envio retomável da imagem contra a Meta (inclusive descobrir o id do aplicativo pela credencial, quando `META_APP_ID` está vazio), a tela com banco de verdade e os invariantes de banco, que rodam no CI.
+
 ## Campanha que pula modelo indisponível, 2026-11-13 (fork Genuine)
 
 [P1] Pedido do dono: a campanha pula sozinha o modelo que a plataforma pausou ou recusou, sem parar o disparo. Antes de cada envio o rodízio usa só modelo aprovado no espelho (`REINSTATED` conta como aprovado). Quando a plataforma recusa o envio com 132015 (pausado), 132016 (desativado) ou 132001 (não aprovado ou sem o idioma), na resposta do envio ou pelo aviso posterior, a pessoa volta à fila e a próxima tentativa é uma mensagem nova com outro modelo; o modelo é marcado no espelho na hora. Só volta quem não tem entrega, leitura nem resposta, no máximo três vezes. Sem nenhum modelo aprovado, a campanha pausa e avisa na Central; quando um modelo volta, a campanha que o sistema pausou retoma sozinha, e a que uma pessoa pausou não. Um cron a cada 10 minutos (`sincronizar-modelos`) sincroniza os modelos das contas oficiais, reabre campanha concluída que recebeu recusa atrasada e retoma as pausadas. Os avisos de qualidade e de categoria da plataforma atualizam o espelho; qualidade vermelha e Utilidade virando Marketing avisam na Central. A tela da campanha mostra, em "Resultado por modelo", a situação de cada um (Ativo ou Pulado, o motivo e as recusas).

@@ -74,6 +74,23 @@ function ehMidia(s: TemplateSlotView): boolean {
  * modelo pronto, o operador tinha de disparar para um cliente. Aqui ele salva
  * sem enviar nada, na mesma tela em que sincroniza. Campo vazio esquece o link.
  */
+/**
+ * Fork (2026-11-13): os campos de link de mídia de UM modelo, para a tela
+ * compartilhada de modelos (`TemplatesParceiroClient`), que o canal oficial
+ * passou a usar para criar, editar e apagar. O recurso continua o mesmo.
+ */
+export function LinksDaMidiaDoModelo({ tpl }: { tpl: TemplateView }) {
+  const midias = (tpl.slots ?? []).filter(ehMidia);
+  if (midias.length === 0 || !tpl.savedValues) return null;
+  return (
+    <div className="flex flex-col gap-2 border-l-2 border-muted pl-3">
+      {midias.map((s) => (
+        <LinkDaMidia key={`m:${s.valueKey}:${tpl.savedValues[s.valueKey] ?? ""}`} tpl={tpl} slot={s} />
+      ))}
+    </div>
+  );
+}
+
 function LinkDaMidia({ tpl, slot }: { tpl: TemplateView; slot: TemplateSlotView }) {
   const t = useT();
   const salvar = useSaveTemplateValues();

@@ -9,7 +9,8 @@ import { CanalOficialClient } from "./CanalOficialClient";
 import { CanalParceiroClient } from "./CanalParceiroClient";
 import { CanalVozClient } from "./CanalVozClient";
 import { ConnectionsClient } from "./ConnectionsClient";
-import { TemplatesClient } from "./TemplatesClient";
+import { LinksDaMidiaDoModelo } from "./TemplatesClient";
+import type { TemplateView } from "@/hooks/channels/useTemplates";
 import { TemplatesParceiroClient } from "./TemplatesParceiroClient";
 import { TelefoniaClient } from "./TelefoniaClient";
 import { useT } from "@/hooks/i18n/useT";
@@ -182,7 +183,13 @@ export function ConexoesShell({
             <CanalOficialClient />
           </TabsContent>
           <TabsContent value="templates" className="mt-0">
-            <TemplatesClient />
+            {/* Fork (2026-11-13): o canal oficial passa a criar, editar e apagar
+                modelo pela MESMA tela dos intermediários. O link da mídia salvo
+                no modelo, que esta aba já oferecia, vai junto no modelo aberto. */}
+            <TemplatesParceiroClient
+              rota={rotaDeTemplates("oficial")}
+              detalheDoModelo={(tpl) => <LinksDaMidiaDoModelo tpl={tpl as unknown as TemplateView} />}
+            />
           </TabsContent>
         </Tabs>
       </TabsContent>

@@ -57892,4 +57892,11 @@ revoke all on public.campaign_template_skips from public, anon, authenticated;
 grant select on public.campaign_template_skips to authenticated;
 grant all on public.campaign_template_skips to service_role;
 
+-- ---- categoria escolhida ao criar modelo pela tela (migration 9009, fork da Genuine) ----
+alter table public.meta_templates
+  add column if not exists categoria_pedida text;
+
+comment on column public.meta_templates.categoria_pedida is
+  'Fork da Genuine: a categoria que a pessoa escolheu ao criar o modelo pela tela (MARKETING, UTILITY, AUTHENTICATION). Nula quando o modelo veio da Meta. Diferente de category = a Meta reclassificou.';
+
 notify pgrst, 'reload schema';

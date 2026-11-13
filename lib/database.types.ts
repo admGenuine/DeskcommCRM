@@ -7919,6 +7919,7 @@ export type Database = {
       }
       meta_templates: {
         Row: {
+          categoria_pedida: string | null
           category: string | null
           channel_session_id: string | null
           components: Json
@@ -7938,6 +7939,7 @@ export type Database = {
           waba_id: string
         }
         Insert: {
+          categoria_pedida?: string | null
           category?: string | null
           channel_session_id?: string | null
           components: Json
@@ -7957,6 +7959,7 @@ export type Database = {
           waba_id: string
         }
         Update: {
+          categoria_pedida?: string | null
           category?: string | null
           channel_session_id?: string | null
           components?: Json

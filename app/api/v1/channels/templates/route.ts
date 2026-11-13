@@ -1,7 +1,8 @@
 import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * GET  /api/v1/channels/templates — o espelho local + o CONTRATO derivado de cada um.
- * POST /api/v1/channels/templates — força um sync com a Graph API.
+ * POST /api/v1/channels/templates — força um sync com a Graph API; com `acao`,
+ *   cria, edita ou apaga um modelo na Meta (fork da Genuine, `./_gestao.ts`).
  * PATCH /api/v1/channels/templates — salva (ou esquece) o link da mídia de um modelo.
  *
  * O contrato vai derivado no payload, e não guardado no banco, de propósito: guardar
@@ -23,6 +24,9 @@ import { deriveTemplateContract, describeAddress } from "@/lib/channels/meta/tem
 import { slotKey } from "@/lib/channels/meta/build-components";
 import { syncTemplates } from "@/lib/channels/meta/template-sync";
 import { mesclarValoresSalvos } from "@/lib/channels/meta/valores-salvos";
+import { corpoDaGestaoOficialSchema } from "@/lib/channels/meta/modelos-oficiais";
+import type { Idioma } from "@/lib/i18n/idiomas";
+import { responderGestaoOficial } from "./_gestao";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +43,8 @@ export interface TemplateView {
   parameterFormat: string;
   contractHash: string;
   syncedAt: string;
+  /** Fork (9009): a categoria que a pessoa escolheu ao criar pela tela; `null` se veio da Meta. */
+  categoriaPedida: string | null;
   slots: Array<{
     key: string;
     expects: string;
@@ -93,7 +99,7 @@ function textPreviews(components: unknown): Array<{ onde: string; text: string }
 }
 
 type OrgGate =
-  | { autorizado: true; orgId: string }
+  | { autorizado: true; orgId: string; userId: string; idioma: Idioma }
   | { autorizado: false; resposta: NextResponse };
 
 /**
@@ -113,7 +119,7 @@ type OrgGate =
 async function orgOrFail(requestId: string, papel: "agent" | "admin"): Promise<OrgGate> {
   const authz = await requireRole(papel, { requestId, resource: "channels_templates" });
   if (!authz.ok) return { autorizado: false, resposta: authz.response };
-  return { autorizado: true, orgId: authz.org.orgId };
+  return { autorizado: true, orgId: authz.org.orgId, userId: authz.user.id, idioma: authz.user.idioma };
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -126,7 +132,7 @@ export async function GET(): Promise<NextResponse> {
   const { data, error } = await admin
     .from("meta_templates")
     .select(
-      "name, language, status, category, rejected_reason, quality_score, parameter_format, contract_hash, components, synced_at, saved_values",
+      "name, language, status, category, rejected_reason, quality_score, parameter_format, contract_hash, components, synced_at, saved_values, categoria_pedida",
     )
     .eq("organization_id", r.orgId)
     .order("status")
@@ -153,6 +159,7 @@ export async function GET(): Promise<NextResponse> {
       parameterFormat: contrato.parameterFormat,
       contractHash: row.contract_hash,
       syncedAt: row.synced_at,
+      categoriaPedida: row.categoria_pedida ?? null,
       slots: contrato.slots.map((s) => ({
         key: s.key,
         expects: s.expects,
@@ -187,13 +194,22 @@ export async function GET(): Promise<NextResponse> {
   });
 }
 
-export async function POST(_req: NextRequest): Promise<NextResponse> {
+export async function POST(req: NextRequest): Promise<NextResponse> {
   const supportDenied = await requireSupportWrite();
   if (supportDenied) return supportDenied;
 
   const requestId = randomUUID();
   const r = await orgOrFail(requestId, "admin");
   if (!r.autorizado) return r.resposta;
+
+  // Fork: sem corpo (ou `{}`) é a sincronização de sempre; com `acao`, a gestão.
+  const bruto = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const pedido = corpoDaGestaoOficialSchema.safeParse(
+    bruto && Object.keys(bruto).length > 0 ? bruto : { acao: "sincronizar" },
+  );
+  if (!pedido.success) {
+    return fail("invalid_request", "Faltam nome, idioma ou conteúdo.", 422, { requestId });
+  }
 
   const sessao = await metaSessionForOrg(r.orgId);
   if (!sessao?.wabaId) {
@@ -217,6 +233,19 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
   });
   if (!creds) return fail("invalid_request", "missing_meta_token", 400, { requestId });
 
+  if (pedido.data.acao !== "sincronizar") {
+    return responderGestaoOficial(
+      {
+        requestId,
+        userId: r.userId,
+        idioma: r.idioma,
+        sessionId: sessao.id,
+        conta: { organizationId: r.orgId, wabaId: sessao.wabaId, token: creds.token, graphVersion: creds.graphVersion },
+      },
+      pedido.data,
+    );
+  }
+
   try {
     const counts = await syncTemplates({
       organizationId: r.orgId,
@@ -224,7 +253,9 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
       token: creds.token,
       graphVersion: creds.graphVersion,
     });
-    return ok(counts);
+    // Fork: a tela compartilhada com os intermediários lê `sincronizadas`/`total`.
+    const vistas = counts.inserted + counts.updated + counts.unchanged;
+    return ok({ ...counts, sincronizadas: vistas, total: vistas });
   } catch (err) {
     // A falha da Graph API vira mensagem legível na tela, não 500 mudo — o
     // operador precisa saber se é token vencido, WABA errada ou rede.
