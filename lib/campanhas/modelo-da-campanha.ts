@@ -42,13 +42,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ApiErrorCode } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
 import {
-  MODELO_APROVADO,
   conexaoExigeModelo,
   modeloDaConexao,
   textoDoModelo,
   type ModeloDaConexao,
   type VagaDoModelo,
 } from "@/lib/channels/modelos-da-conexao";
+import { avisarSobreModelo, modeloEnviavel } from "@/lib/channels/avisos-de-modelo";
 
 import {
   ENVIOS_POR_RODADA_MAXIMO,
@@ -145,7 +145,7 @@ export async function decidirConteudo(
         `O modelo "${pedido.template_name}" (${pedido.template_language}) não está na lista desta conexão. Sincronize os modelos e tente de novo.`,
       );
     }
-    if (definicao.status !== MODELO_APROVADO) {
+    if (!modeloEnviavel(definicao.status)) {
       return recusa(
         `O modelo "${pedido.template_name}" está com o status ${definicao.status} na plataforma. Só modelo aprovado pode ir para a campanha.`,
       );
@@ -160,7 +160,7 @@ export async function decidirConteudo(
         name: pedido.template_name,
         language: pedido.template_language,
       });
-      if (!noExtra || noExtra.status !== MODELO_APROVADO) {
+      if (!noExtra || !modeloEnviavel(noExtra.status)) {
         return recusa(
           `Um dos números do rodízio não tem o modelo "${pedido.template_name}" aprovado. Tire esse número da campanha ou aprove o modelo na conta dele.`,
         );
@@ -355,7 +355,7 @@ export interface ConexaoDoEnvio {
 }
 
 /** Cada modelo da lista, como está na plataforma para este número agora. */
-async function situacaoDosModelos(
+export async function situacaoDosModelos(
   admin: SupabaseClient,
   conexao: { organizationId: string; channelSessionId: string },
   modelo: ModeloDaCampanha,
@@ -438,7 +438,7 @@ export async function conteudoDoEnvio(
     posicao = posicaoFixa;
   } else if (modelo.itens.length === 1) {
     // Um modelo só: sem rodízio nem contagem, como na etapa anterior.
-    posicao = definicoes[0]?.status === MODELO_APROVADO ? 0 : null;
+    posicao = modeloEnviavel(definicoes[0]?.status) ? 0 : null;
   } else {
     const enviados =
       conexao.campanhaId !== undefined
@@ -449,7 +449,7 @@ export async function conteudoDoEnvio(
         posicao: i,
         peso: item.peso ?? 1,
         enviados: enviados[i] ?? 0,
-        aprovado: definicoes[i]?.status === MODELO_APROVADO,
+        aprovado: modeloEnviavel(definicoes[i]?.status),
       })),
     );
   }
@@ -564,7 +564,7 @@ export async function repetirNaRodada<R extends ResultadoDeUmaVez>(
  */
 export async function pausarSeOModeloSaiu(
   admin: SupabaseClient,
-  campanha: { id: string; organization_id: string; channel_session_id: string },
+  campanha: { id: string; organization_id: string; channel_session_id: string; name?: string },
   modelo: ModeloDaCampanha,
   agora: Date,
 ): Promise<string | null> {
@@ -573,28 +573,47 @@ export async function pausarSeOModeloSaiu(
     { organizationId: campanha.organization_id, channelSessionId: campanha.channel_session_id },
     modelo,
   );
-  if (definicoes.some((d) => d?.status === MODELO_APROVADO)) return null;
+  if (definicoes.some((d) => modeloEnviavel(d?.status))) return null;
 
   const um = modelo.itens.length === 1;
   const situacao = definicoes[0]?.status ?? "fora da lista";
   const primeiro = modelo.itens[0]!;
-  await admin
+  const volta =
+    "A campanha volta sozinha quando um modelo da lista voltar a ficar aprovado, ou você pode trocar os modelos e retomar.";
+  const detalhe = um
+    ? `O modelo "${primeiro.template_name}" (${primeiro.template_language}) está ${situacao} na plataforma. ${volta}`
+    : `Nenhum dos ${modelo.itens.length} modelos da campanha está aprovado na plataforma agora. ${volta}`;
+  const { data: pausada } = await admin
     .from("campaigns")
     .update({
       status: "paused",
       paused_at: agora.toISOString(),
-      failure_code: (um ? `modelo_nao_aprovado:${situacao}` : "modelos_nao_aprovados").slice(
-        0,
-        120,
-      ),
-      failure_detail: um
-        ? `O modelo "${primeiro.template_name}" (${primeiro.template_language}) está ${situacao} na plataforma. Troque o modelo ou espere a liberação e retome a campanha.`
-        : `Nenhum dos ${modelo.itens.length} modelos da campanha está aprovado na plataforma agora. Troque os modelos ou espere a liberação e retome a campanha.`,
+      failure_code: (um ? `${PAUSA_POR_MODELO}:${situacao}` : PAUSA_POR_MODELOS).slice(0, 120),
+      failure_detail: detalhe,
     })
     .eq("id", campanha.id)
     .eq("organization_id", campanha.organization_id)
-    .eq("status", "running");
+    .eq("status", "running")
+    .select("id");
+  // Quem pausou avisa, uma vez: a próxima rodada já não pega a campanha pausada.
+  if ((pausada ?? []).length > 0) {
+    await avisarSobreModelo(admin, campanha.organization_id, {
+      severity: "critical",
+      title: `Campanha "${campanha.name ?? campanha.id.slice(0, 8)}" pausada: nenhum modelo aprovado`,
+      body: detalhe,
+    });
+  }
   return um ? `pausada:modelo_${situacao}` : "pausada:modelos_nao_aprovados";
+}
+
+/** O código de pausa que o sistema grava; só a campanha pausada com ele volta sozinha. */
+export const PAUSA_POR_MODELO = "modelo_nao_aprovado";
+export const PAUSA_POR_MODELOS = "modelos_nao_aprovados";
+
+/** A campanha foi pausada pelo sistema por falta de modelo (e não por uma pessoa)? */
+export function pausadaPorFaltaDeModelo(failureCode: string | null | undefined): boolean {
+  const c = failureCode ?? "";
+  return c === PAUSA_POR_MODELOS || c.startsWith(`${PAUSA_POR_MODELO}:`);
 }
 
 // ─── O teste e a cópia da campanha ───────────────────────────────────────────
@@ -623,7 +642,7 @@ export async function conteudoDoTeste(
       };
     }
     const definicoes = await situacaoDosModelos(admin, conexao, modelo);
-    const fora = modelo.itens.findIndex((_, i) => definicoes[i]?.status !== MODELO_APROVADO);
+    const fora = modelo.itens.findIndex((_, i) => !modeloEnviavel(definicoes[i]?.status));
     if (fora >= 0) {
       return recusa(
         `O modelo "${modelo.itens[fora]!.template_name}" está ${definicoes[fora]?.status ?? "fora da lista desta conexão"} na plataforma. Troque o modelo antes de testar.`,

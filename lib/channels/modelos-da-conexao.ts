@@ -21,6 +21,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { CHANNEL_PROVIDER_META, capabilitiesOf, transportaMensagem } from "./capabilities";
+import { STATUS_ENVIAVEIS } from "./avisos-de-modelo";
 import { linhaDoEspelho } from "./linha-do-espelho";
 import { slotKey } from "./meta/build-components";
 import { renderTemplateBody, renderTemplatePreview } from "./meta/render-template";
@@ -48,6 +49,8 @@ export interface ModeloDaConexao {
   language: string;
   category: string | null;
   status: string;
+  /** A nota de qualidade da plataforma (GREEN, YELLOW, RED, UNKNOWN), quando há. */
+  qualityScore: string | null;
   vagas: VagaDoModelo[];
   /** O texto do cabeçalho e do corpo, com as vagas ainda como `{{n}}`. */
   previa: string;
@@ -63,6 +66,7 @@ interface LinhaDoModelo {
   language: string;
   category: string | null;
   status: string;
+  quality_score?: string | null;
   components: unknown;
   parameter_format: string | null;
   saved_values: unknown;
@@ -70,7 +74,7 @@ interface LinhaDoModelo {
 }
 
 const COLUNAS =
-  "name, language, category, status, components, parameter_format, saved_values, channel_session_id";
+  "name, language, category, status, quality_score, components, parameter_format, saved_values, channel_session_id";
 
 /** Este provedor só entrega modelo fora da janela? Desconhecido responde `false`. */
 export function exigeModelo(provider: string | null | undefined): boolean {
@@ -144,6 +148,7 @@ function paraModelo(l: LinhaDoModelo): ModeloDaConexao {
     language: l.language,
     category: l.category,
     status: l.status,
+    qualityScore: l.quality_score ?? null,
     vagas: vagasDoModelo(l),
     previa: [previa.cabecalho, previa.corpo].filter((p) => !!p).join("\n\n"),
     valoresSalvos: salvos,
@@ -177,7 +182,7 @@ export async function modelosAprovadosDaConexao(
     .select(COLUNAS)
     .eq("organization_id", organizationId)
     .eq("channel_session_id", channelSessionId)
-    .eq("status", MODELO_APROVADO);
+    .in("status", [...STATUS_ENVIAVEIS]);
   if (daConexao.error) throw new Error(`modelos_lookup_failed: ${daConexao.error.message}`);
   linhas.push(...((daConexao.data ?? []) as unknown as LinhaDoModelo[]));
 
@@ -188,7 +193,7 @@ export async function modelosAprovadosDaConexao(
       .eq("organization_id", organizationId)
       .is("channel_session_id", null)
       .eq("waba_id", s.meta_waba_id)
-      .eq("status", MODELO_APROVADO);
+      .in("status", [...STATUS_ENVIAVEIS]);
     if (daConta.error) throw new Error(`modelos_lookup_failed: ${daConta.error.message}`);
     linhas.push(...((daConta.data ?? []) as unknown as LinhaDoModelo[]));
   }

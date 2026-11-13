@@ -33,6 +33,8 @@ import { fail } from "@/lib/api/wrappers";
 import { appDaMeta } from "@/lib/channels/meta/app";
 import { lerEnvelopeMeta } from "@/lib/channels/meta/envelope";
 import { parseMetaWebhook, verificationChallenge, verifyMetaSignature } from "@/lib/channels/meta/webhook";
+import { aplicarAvisoDeModelo } from "@/lib/channels/avisos-de-modelo";
+import { retomarCampanhasPausadasPorModelo } from "@/lib/campanhas/modelo-indisponivel";
 import { statusUpdate } from "@/lib/channels/meta/status-update";
 import { ingestMetaAppContactSync, ingestMetaEcho, ingestMetaInbound } from "@/lib/channels/meta/ingest";
 import { metaSessionByWebhookToken } from "@/lib/channels/meta/session";
@@ -193,6 +195,12 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
       continue;
     }
 
+    // Fork (2026-11-13): qualidade e categoria do modelo (`lib/channels/avisos-de-modelo.ts`).
+    if (e.kind === "template_quality" || e.kind === "template_category") {
+      desfechos.push(await aplicarAvisoDeModelo(admin, session.organizationId, e));
+      continue;
+    }
+
     if (e.kind === "template_status") {
       await admin
         .from("meta_templates")
@@ -201,6 +209,8 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
         .eq("waba_id", e.wabaId)
         .eq("name", e.templateName)
         .eq("language", e.templateLanguage);
+      // Fork: o modelo que voltou devolve ao disparo a campanha que o sistema pausou por falta dele.
+      await retomarCampanhasPausadasPorModelo(admin, session.organizationId, new Date());
     } else if (e.status === "failed") {
       // A recusa da plataforma chega DEPOIS do 200 (131047 fora da janela,
       // 131026 número não registrado, 132015 template pausado). O evento inteiro

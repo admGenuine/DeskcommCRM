@@ -211,12 +211,46 @@ export interface AppContactSyncEvent {
   action: string;
 }
 
+/**
+ * Fork da Genuine (2026-11-13): a Meta mudou a nota de qualidade de um modelo
+ * (`message_template_quality_update`: GREEN, YELLOW, RED, UNKNOWN). Quem age é
+ * `lib/channels/avisos-de-modelo.ts`.
+ */
+export interface TemplateQualityEvent {
+  kind: "template_quality";
+  wabaId: string;
+  templateName: string;
+  templateLanguage: string;
+  previousQuality: string | null;
+  newQuality: string;
+}
+
+/**
+ * Fork da Genuine (2026-11-13): a Meta mudou (ou vai mudar) a categoria de um
+ * modelo (`template_category_update`). Mudança feita traz `previous_category` e
+ * `new_category`; mudança anunciada traz `new_category` (a de hoje),
+ * `correct_category` (a que vai valer) e `category_update_timestamp`.
+ */
+export interface TemplateCategoryEvent {
+  kind: "template_category";
+  wabaId: string;
+  templateName: string;
+  templateLanguage: string;
+  previousCategory: string | null;
+  newCategory: string | null;
+  correctCategory: string | null;
+  /** Quando a mudança anunciada passa a valer (segundos Unix), se a Meta disse. */
+  updateTimestamp: number | null;
+}
+
 export type MetaWebhookEvent =
   | TemplateStatusEvent
   | MessageStatusEvent
   | InboundMessageEvent
   | OutboundEchoEvent
-  | AppContactSyncEvent;
+  | AppContactSyncEvent
+  | TemplateQualityEvent
+  | TemplateCategoryEvent;
 
 /**
  * O formato do fio mora em `./envelope.ts`, onde é um schema Zod — e o tipo
@@ -280,6 +314,42 @@ export function parseMetaWebhook(envelope: MetaWebhookEnvelope): MetaWebhookEven
           event: str(v.event) ?? "UNKNOWN",
           reason: normalizeRejectedReason(v.reason),
         });
+        continue;
+      }
+
+      // Fork (2026-11-13): qualidade e categoria do modelo. Payload capenga é ignorado.
+      if (change.field === "message_template_quality_update") {
+        const name = str(v.message_template_name);
+        const language = str(v.message_template_language);
+        const nova = str(v.new_quality_score);
+        if (name && language && nova) {
+          out.push({
+            kind: "template_quality",
+            wabaId,
+            templateName: name,
+            templateLanguage: language,
+            previousQuality: str(v.previous_quality_score),
+            newQuality: nova.toUpperCase(),
+          });
+        }
+        continue;
+      }
+      if (change.field === "template_category_update") {
+        const name = str(v.message_template_name);
+        const language = str(v.message_template_language);
+        if (name && language) {
+          const quando = Number(v.category_update_timestamp);
+          out.push({
+            kind: "template_category",
+            wabaId,
+            templateName: name,
+            templateLanguage: language,
+            previousCategory: str(v.previous_category)?.toUpperCase() ?? null,
+            newCategory: str(v.new_category)?.toUpperCase() ?? null,
+            correctCategory: str(v.correct_category)?.toUpperCase() ?? null,
+            updateTimestamp: Number.isFinite(quando) && quando > 0 ? quando : null,
+          });
+        }
         continue;
       }
 

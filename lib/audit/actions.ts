@@ -1155,6 +1155,9 @@ export const AUDIT_ACTIONS = [
   // `removidas` no metadata) ou dentro do `template.deleted`, que são os atos
   // em que a imagem sai de fato.
   "template.media_added",
+  // Fork da Genuine (2026-11-13): a sincronização automática dos modelos da API
+  // oficial mudou o espelho, reabriu ou retomou campanha. Rodada vazia não audita.
+  "cron.sincronizar_modelos",
 ] as const;
 
 /** Um código de auditoria. Derivado de `AUDIT_ACTIONS` — não redigite a lista. */

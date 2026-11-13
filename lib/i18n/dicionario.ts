@@ -16399,6 +16399,22 @@ export const DICIONARIO: Traducoes = {
   "proporção": { es: "proporción" },
   "Todos os modelos da campanha precisam ser da mesma categoria. Hoje a lista mistura Marketing e Utilidade.": { es: "Todas las plantillas de la campaña deben ser de la misma categoría. Hoy la lista mezcla Marketing y Utilidad." },
   "Um dos números do rodízio manda texto livre e não usa modelos aprovados. Tire esse número da campanha.": { es: "Uno de los números de la rotación envía texto libre y no usa plantillas aprobadas. Quita ese número de la campaña." },
+  // ── Campanha que pula modelo indisponível (fork, 2026-11-13) ──
+  "pausado pela plataforma": { es: "pausada por la plataforma" },
+  "desativado pela plataforma": { es: "desactivada por la plataforma" },
+  "recusado na análise da plataforma": { es: "rechazada en la revisión de la plataforma" },
+  "em análise na plataforma": { es: "en revisión en la plataforma" },
+  "não encontrado neste número": { es: "no encontrada en este número" },
+  "indisponível na plataforma": { es: "no disponible en la plataforma" },
+  "modelo pausado": { es: "plantilla pausada" },
+  "modelo desativado": { es: "plantilla desactivada" },
+  "modelo não aprovado ou sem este idioma": { es: "plantilla no aprobada o sin este idioma" },
+  "Pulado": { es: "Saltada" },
+  "qualidade baixa": { es: "calidad baja" },
+  "envio recusado": { es: "envío rechazado" },
+  "envios recusados": { es: "envíos rechazados" },
+  "último em": { es: "último el" },
+  "Modelo pausado ou recusado pela plataforma é pulado, e quem ele não alcançou volta à fila para outro modelo.": { es: "La plantilla pausada o rechazada por la plataforma se salta, y quien no recibió el mensaje vuelve a la fila para otra plantilla." },
 };
 
 /**

@@ -48,6 +48,7 @@ describe("as vagas de um modelo", () => {
         language: "pt_BR",
         category: "MARKETING",
         status: "APPROVED",
+        qualityScore: null,
         vagas,
         previa: "",
         valoresSalvos: {},
