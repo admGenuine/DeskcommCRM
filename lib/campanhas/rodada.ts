@@ -53,10 +53,10 @@ import {
   conteudoDoEnvio,
   enviosPorRodada,
   lerModelosDasCampanhas,
-  pausarSeOModeloSaiu,
   repetirNaRodada,
   type ModeloDaCampanha,
 } from "./modelo-da-campanha";
+import { antesDaRodadaComModelo } from "./modelo-indisponivel";
 import { podeMandarAgora, proximaTentativa, type RitmoDaCampanha } from "./ritmo";
 import { nomeDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { TEXTO_DA_EXCLUSAO } from "./tipos";
@@ -180,7 +180,8 @@ export async function rodarUmaRodadaDeCampanha(
 
     try {
       const modelo = modelos.get(campanha.id) ?? null;
-      const pausada = modelo ? await pausarSeOModeloSaiu(admin, campanha, modelo, agora) : null;
+      // Fork: devolve à fila quem a plataforma recusou por modelo pausado, e pausa se nenhum restou.
+      const pausada = modelo ? await antesDaRodadaComModelo(admin, campanha, modelo, agora) : null;
       if (pausada) {
         detalhes.push(`${campanha.id.slice(0, 8)}:${pausada}`);
         continue;

@@ -98,3 +98,48 @@ describe("vários modelos em rodízio (migration 9007)", () => {
     ).toBe("campaign_recipients:c,campaigns:c,organizations:c");
   });
 });
+
+describe("modelo indisponível no meio do disparo (migration 9008)", () => {
+  const PULOS = "public.campaign_template_skips";
+
+  it("o registro de cada pessoa conta as voltas por modelo indisponível, começando em zero", () => {
+    expect(
+      sql(
+        `select data_type || ':' || is_nullable || ':' || column_default
+           from information_schema.columns
+          where table_schema = 'public' and table_name = 'campaign_recipient_templates'
+            and column_name = 'tentativas_indisponivel'`,
+      ),
+    ).toBe("smallint:NO:0");
+  });
+
+  it("os pulos por modelo: chave (campanha, modelo, idioma), RLS ligada, o navegador só lê, somem com a campanha e a organização", () => {
+    expect(
+      sql(
+        `select string_agg(a.attname, ',' order by k.ord)
+           from pg_constraint c
+           cross join lateral unnest(c.conkey) with ordinality as k(attnum, ord)
+           join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum
+          where c.conrelid = '${PULOS}'::regclass and c.contype = 'p'`,
+      ),
+    ).toBe("campaign_id,template_name,template_language");
+    expect(sql(`select relrowsecurity from pg_class where oid = '${PULOS}'::regclass`)).toBe("t");
+    expect(
+      sql(
+        `select bool_and(not has_table_privilege('anon', '${PULOS}', o)) from unnest(array['SELECT','INSERT','UPDATE','DELETE']) o`,
+      ),
+    ).toBe("t");
+    expect(sql(`select has_table_privilege('authenticated', '${PULOS}', 'SELECT')`)).toBe("t");
+    expect(
+      sql(
+        `select bool_and(not has_table_privilege('authenticated', '${PULOS}', o)) from unnest(array['INSERT','UPDATE','DELETE','TRUNCATE']) o`,
+      ),
+    ).toBe("t");
+    expect(
+      sql(
+        `select string_agg(confrelid::regclass::text || ':' || confdeltype, ',' order by confrelid::regclass::text)
+           from pg_constraint where conrelid = '${PULOS}'::regclass and contype = 'f'`,
+      ),
+    ).toBe("campaigns:c,organizations:c");
+  });
+});

@@ -3089,6 +3089,23 @@ de contrato; pareamento real por código ainda requer confirmação no celular.
 - QA local com Supabase e provedor de teste: entrada assinada, resposta manual, deduplicação, assinatura inválida, conta incorreta e concorrência de registro aprovadas.
 - QA visual local e na instalação self-host concluída; app/worker `788b0fe` saudáveis e testes de webhook do provedor aprovados. DM real e pareamento confirmado no celular permanecem pendentes.
 
+## Campanha que pula modelo indisponível, 2026-11-13 (fork Genuine)
+
+[P1] Pedido do dono: a campanha pula sozinha o modelo que a plataforma pausou ou recusou, sem parar o disparo. Antes de cada envio o rodízio usa só modelo aprovado no espelho (`REINSTATED` conta como aprovado). Quando a plataforma recusa o envio com 132015 (pausado), 132016 (desativado) ou 132001 (não aprovado ou sem o idioma), na resposta do envio ou pelo aviso posterior, a pessoa volta à fila e a próxima tentativa é uma mensagem nova com outro modelo; o modelo é marcado no espelho na hora. Só volta quem não tem entrega, leitura nem resposta, no máximo três vezes. Sem nenhum modelo aprovado, a campanha pausa e avisa na Central; quando um modelo volta, a campanha que o sistema pausou retoma sozinha, e a que uma pessoa pausou não. Um cron a cada 10 minutos (`sincronizar-modelos`) sincroniza os modelos das contas oficiais, reabre campanha concluída que recebeu recusa atrasada e retoma as pausadas. Os avisos de qualidade e de categoria da plataforma atualizam o espelho; qualidade vermelha e Utilidade virando Marketing avisam na Central. A tela da campanha mostra, em "Resultado por modelo", a situação de cada um (Ativo ou Pulado, o motivo e as recusas).
+
+| Caso | Prioridade | Estado |
+| --- | --- | --- |
+| Recusa na resposta do envio: marca o modelo, a pessoa volta e recebe o outro modelo, uma mensagem nova, sem duas entregas | `[P1]` | `tests/unit/campanha-modelo-indisponivel.test.ts` |
+| Recusa pelo aviso posterior: a pessoa volta e a mensagem recusada deixa de apontar para ela | `[P1]` | `tests/unit/campanha-modelo-indisponivel.test.ts` |
+| Quem tem entrega, leitura ou resposta nunca volta; falha que não é de modelo continua falha; teto de três voltas | `[P1]` | `tests/unit/campanha-modelo-indisponivel.test.ts` |
+| Todos indisponíveis: a campanha pausa, avisa na Central e ninguém fica como falha | `[P1]` | `tests/unit/campanha-modelo-indisponivel.test.ts` |
+| Modelo que volta: retoma a campanha pausada pelo sistema, não a pausada por uma pessoa, e volta ao rodízio | `[P1]` | `tests/unit/campanha-modelo-indisponivel.test.ts` |
+| Campanha concluída com recusa atrasada é reaberta pela sincronização | `[P1]` | `tests/unit/campanha-modelo-indisponivel.test.ts` |
+| Avisos de qualidade e de categoria: parser, espelho, aviso de custo de Utilidade para Marketing, aviso que não se repete | `[P1]` | `tests/unit/avisos-de-modelo.test.ts` |
+| Contador de voltas e tabela de pulos: RLS, só leitura para o navegador, cascata | `[P1]` | `tests/invariants/campanha-com-modelo.test.ts` (Postgres do CI) |
+
+Não medido aqui: a recusa real da Meta (o código 132015 vem da documentação oficial, que não diz se ele chega na resposta do envio ou pelo aviso; os dois caminhos são tratados), a sincronização automática contra a Graph API de verdade, a tela com banco de verdade e os invariantes de banco, que rodam no CI.
+
 ## Campanha com vários modelos em rodízio, 2026-11-13 (fork Genuine)
 
 [P1] Pedido do dono: uma campanha alterna vários modelos aprovados durante o disparo, numa proporção escolhida, e o relatório mostra o resultado de cada modelo. A tela de criar e editar monta uma lista de até cinco modelos do número, cada um com o próprio mapa de variáveis, a categoria ao lado do nome e o peso na proporção (1 a 10). A lista é de uma categoria só: misturar Marketing e Utilidade é recusado na tela e no servidor. A cada envio, o rodízio (`lib/campanhas/rodizio-de-modelos.ts`) escolhe o modelo mais atrasado em relação ao peso, pulando o que a plataforma pausou; a campanha só pausa quando nenhum está aprovado. O modelo de cada pessoa fica em `campaign_recipient_templates` (migration 9007), e a tela da campanha ganhou "Resultado por modelo". Campanha de um modelo só continua igual, inclusive as já preparadas.

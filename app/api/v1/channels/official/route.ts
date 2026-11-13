@@ -172,9 +172,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           // `smb_app_state_sync`: o que a empresa faz no ENDEREÇO do app (contato
           // criado/editado), que vira cadastro no CRM. Mesma régua: sem
           // coexistência a Meta não envia.
+          // Fork (2026-11-13): qualidade e categoria do modelo, que a campanha usa
+          // para pular modelo em risco e avisar quando o custo muda.
           fields: [
             "messages",
             "message_template_status_update",
+            "message_template_quality_update",
+            "template_category_update",
             "smb_message_echoes",
             "smb_app_state_sync",
           ],

@@ -7,6 +7,7 @@
  * `lib/campanhas/metricas-por-modelo.ts`; as linhas vêm pela sessão (RLS) e com
  * o filtro explícito da organização, como as métricas da campanha. A categoria
  * de cada modelo vem do espelho do número principal, pela fronteira de canal.
+ * A situação (ativo ou pulado, e as recusas) vem de `situacao-do-modelo.ts`.
  */
 import { randomUUID } from "node:crypto";
 
@@ -20,6 +21,7 @@ import {
   type CarimbosDoDestinatario,
   type RegistroDoModelo,
 } from "@/lib/campanhas/metricas-por-modelo";
+import { situacaoDoModelo } from "@/lib/campanhas/situacao-do-modelo";
 import { modeloDaConexao } from "@/lib/channels/modelos-da-conexao";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -49,7 +51,7 @@ export async function GET(
   // Campanha de outra organização responde igual a campanha sem modelo: não revela que existe.
   if (!campanha) return ok({ modelos: [], parcial: false }, { requestId });
 
-  const [registros, destinatarios] = await Promise.all([
+  const [registros, destinatarios, pulos] = await Promise.all([
     supabase
       .from("campaign_recipient_templates")
       .select("recipient_id, template_name, template_language")
@@ -62,6 +64,12 @@ export async function GET(
       .eq("organization_id", org)
       .eq("campaign_id", id)
       .limit(TETO),
+    // Quantas vezes a plataforma recusou cada modelo nesta campanha (`modelo-indisponivel.ts`).
+    supabase
+      .from("campaign_template_skips")
+      .select("template_name, template_language, motivo, vezes, ultima_em")
+      .eq("organization_id", org)
+      .eq("campaign_id", id),
   ]);
   if (registros.error) return fail("internal_error", registros.error.message, 500, { requestId });
   if (destinatarios.error) {
@@ -88,11 +96,27 @@ export async function GET(
     const item = modelo?.itens.find(
       (i) => i.template_name === m.template_name && i.template_language === m.template_language,
     );
+    const pulo = (
+      (pulos.data ?? []) as Array<{
+        template_name: string;
+        template_language: string;
+        motivo: string;
+        vezes: number;
+        ultima_em: string | null;
+      }>
+    ).find(
+      (p) => p.template_name === m.template_name && p.template_language === m.template_language,
+    );
     modelos.push({
       ...m,
       categoria: definicao?.category ?? null,
       status: definicao?.status ?? null,
       peso: item?.peso ?? null,
+      situacao: situacaoDoModelo({
+        status: definicao?.status ?? null,
+        qualidade: definicao?.qualityScore ?? null,
+        pulos: pulo ?? null,
+      }),
     });
   }
 

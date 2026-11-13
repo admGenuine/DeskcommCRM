@@ -73,6 +73,8 @@ CRONS="
 # paralelo.
 * * * * *|25|api/v1/cron/channel-pause-scheduler
 */10 * * * *|60|api/v1/cron/contact-avatars
+# Fork da Genuine: rede de segurança dos modelos da API oficial (aviso perdido).
+*/10 * * * *|120|api/v1/cron/sincronizar-modelos
 */10 * * * *|60|api/v1/cron/agenda-google-refresh
 * * * * *|90|api/v1/cron/agenda-google-sync
 # A IDA. Cadência mais curta que a volta de propósito: quem marcou pela tela

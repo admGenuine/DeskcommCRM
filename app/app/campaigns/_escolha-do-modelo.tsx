@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
 import { useT } from "@/hooks/i18n/useT";
 import { apiClient } from "@/lib/api/client";
 import {
@@ -42,6 +43,7 @@ import {
   type OrigemDaVaga,
 } from "@/lib/campanhas/corpo-do-modelo";
 import type { MetricaDoModelo } from "@/lib/campanhas/metricas-por-modelo";
+import type { SituacaoDoModelo } from "@/lib/campanhas/situacao-do-modelo";
 
 export interface ModelosDaConexao {
   exige_modelo: boolean;
@@ -405,7 +407,67 @@ type MetricaComCategoria = MetricaDoModelo & {
   categoria: string | null;
   status: string | null;
   peso: number | null;
+  situacao?: SituacaoDoModelo;
 };
+
+/** Ativo ou pulado, com o motivo e as recusas desta campanha (`lib/campanhas/situacao-do-modelo.ts`). */
+function SituacaoNaCampanha({ situacao }: { readonly situacao: SituacaoDoModelo | undefined }) {
+  const t = useT();
+  const idioma = useTagDeIdioma();
+  if (!situacao) return null;
+  const motivo = (() => {
+    switch (situacao.motivo) {
+      case "pausado":
+        return t("pausado pela plataforma");
+      case "desativado":
+        return t("desativado pela plataforma");
+      case "recusado":
+        return t("recusado na análise da plataforma");
+      case "em_analise":
+        return t("em análise na plataforma");
+      case "fora_do_numero":
+        return t("não encontrado neste número");
+      case "outro":
+        return t("indisponível na plataforma");
+      default:
+        return null;
+    }
+  })();
+  const recusa = (() => {
+    switch (situacao.ultimaRecusa) {
+      case "pausado":
+        return t("modelo pausado");
+      case "desativado":
+        return t("modelo desativado");
+      case "nao_aprovado":
+        return t("modelo não aprovado ou sem este idioma");
+      default:
+        return null;
+    }
+  })();
+  return (
+    <span className="flex flex-col gap-0.5">
+      <span
+        className={situacao.ativo ? "font-medium text-success-fg" : "font-medium text-warning-fg"}
+      >
+        {situacao.ativo ? t("Ativo") : t("Pulado")}
+      </span>
+      {motivo && <span className="text-xs text-muted-foreground">{motivo}</span>}
+      {situacao.qualidadeBaixa && (
+        <span className="text-xs text-warning-fg">{t("qualidade baixa")}</span>
+      )}
+      {situacao.recusas > 0 && (
+        <span className="text-xs text-muted-foreground">
+          {situacao.recusas} {situacao.recusas === 1 ? t("envio recusado") : t("envios recusados")}
+          {recusa ? ` (${recusa})` : ""}
+          {situacao.ultimaRecusaEm
+            ? ` · ${t("último em")} ${new Date(situacao.ultimaRecusaEm).toLocaleString(idioma, { dateStyle: "short", timeStyle: "short" })}`
+            : ""}
+        </span>
+      )}
+    </span>
+  );
+}
 
 function porcento(valor: number | null): string {
   return valor === null ? "—" : `${Math.round(valor * 100)}%`;
@@ -440,6 +502,7 @@ export function MetricasPorModelo({
           <thead className="text-xs text-muted-foreground">
             <tr>
               <th className="py-2 pr-3">{t("Modelo")}</th>
+              <th className="py-2 pr-3">{t("Situação")}</th>
               <th className="py-2 pr-3">{t("Enviadas")}</th>
               <th className="py-2 pr-3">{t("Entregues")}</th>
               <th className="py-2 pr-3">{t("Lidas")}</th>
@@ -459,10 +522,10 @@ export function MetricasPorModelo({
                         {t("proporção")} {m.peso}
                       </span>
                     )}
-                    {m.status && m.status !== "APPROVED" && (
-                      <span className="text-xs text-warning-fg">{m.status}</span>
-                    )}
                   </span>
+                </td>
+                <td className="py-2 pr-3">
+                  <SituacaoNaCampanha situacao={m.situacao} />
                 </td>
                 <td className="py-2 pr-3 tabular-nums">{m.enviados}</td>
                 <td className="py-2 pr-3 tabular-nums">
@@ -483,6 +546,9 @@ export function MetricasPorModelo({
         </table>
       </div>
       <p className="text-xs text-muted-foreground">
+        {t(
+          "Modelo pausado ou recusado pela plataforma é pulado, e quem ele não alcançou volta à fila para outro modelo.",
+        )}{" "}
         {t("Entregues sobre enviadas, lidas sobre entregues, falhas sobre tentadas.")}
         {consulta.data?.parcial
           ? ` ${t("Conta parcial: a campanha passou de 20.000 pessoas.")}`
