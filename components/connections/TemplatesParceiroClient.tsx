@@ -1,7 +1,7 @@
 "use client";
 
 import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -25,12 +25,31 @@ import {
   IDIOMAS_DA_DEFINICAO,
   lerConteudo,
   LIMITE_BOTOES,
+  LIMITE_CABECALHO,
   LIMITE_CORPO,
   LIMITE_RODAPE,
+  LIMITE_TEXTO_DO_BOTAO,
   montarComponents,
   paraFormulario,
   type BotaoDaDefinicao,
 } from "@/lib/channels/template-conteudo";
+// Fork (2026-11-13): as regras da Meta conferidas na tela, o modelo de
+// autenticação e o que a Meta deixa fazer com um modelo existente.
+import {
+  comBotoesDoFormulario,
+  lerAutenticacao,
+  LIMITES_DO_MODELO,
+  montarAutenticacao,
+  podeApagar,
+  podeEditar,
+  podeTrocarCategoria,
+  ROTULO_DA_CATEGORIA_DO_MODELO,
+  ROTULO_DO_STATUS,
+  textoDaAutenticacao,
+  TEXTO_DO_PROBLEMA,
+  travaOEnvio,
+  validarModelo,
+} from "@/lib/channels/regras-do-modelo";
 import { cn } from "@/lib/utils";
 import { useT } from "@/hooks/i18n/useT";
 
@@ -54,7 +73,7 @@ import { useT } from "@/hooks/i18n/useT";
  * sincronizar sozinho ao abrir a tela esconderia a diferença entre "não tenho
  * nenhuma" e "não consegui perguntar".
  */
-interface TemplateParceiro {
+export interface TemplateParceiro {
   name: string;
   language: string;
   status: string;
@@ -62,6 +81,8 @@ interface TemplateParceiro {
   rejectedReason: string | null;
   syncedAt: string;
   components: unknown[];
+  /** Fork (9009): a categoria escolhida ao criar pela tela, quando a rota a devolve. */
+  categoriaPedida?: string | null;
 }
 
 const COR_DO_ESTADO: Record<string, string> = {
@@ -80,10 +101,13 @@ const COR_DO_ESTADO: Record<string, string> = {
 export function TemplatesParceiroClient({
   rota = "/api/v1/channels/partner/templates",
   gerenciar = true,
+  detalheDoModelo,
 }: {
   rota?: string;
   /** Mostra Editar/Apagar no modelo aberto. A prévia aparece sempre. */
   gerenciar?: boolean;
+  /** Fork: o que o canal acrescenta ao modelo aberto (no oficial, o link da mídia salvo). */
+  detalheDoModelo?: (tpl: TemplateParceiro) => ReactNode;
 } = {}) {
   const tagDoIdioma = useTagDeIdioma();
   const t = useT();
@@ -96,14 +120,19 @@ export function TemplatesParceiroClient({
   const [rodape, setRodape] = useState("");
   const [exemplos, setExemplos] = useState<string[]>([]);
   const [cabecalho, setCabecalho] = useState("");
+  const [exemploCabecalho, setExemploCabecalho] = useState("");
   const [midiaUrl, setMidiaUrl] = useState("");
+  // Fork: o modelo de autenticação tem texto fixo da Meta; estas são as opções dele.
+  const [avisoDeSeguranca, setAvisoDeSeguranca] = useState(true);
+  const [validade, setValidade] = useState("10");
+  const [textoDoCopiar, setTextoDoCopiar] = useState("");
   const [botoes, setBotoes] = useState<BotaoDaDefinicao[]>([]);
   const [subindo, setSubindo] = useState(false);
   const [aberto, setAberto] = useState<string | null>(null);
   // EDITAR reusa o formulário de criar, já preenchido com o texto aprovado. Nome,
   // idioma e categoria ficam travados: a plataforma não deixa mudá-los depois de
   // criado, e oferecer o campo seria prometer uma edição que ela recusa.
-  const [editando, setEditando] = useState<{ name: string; language: string } | null>(null);
+  const [editando, setEditando] = useState<{ name: string; language: string; status: string } | null>(null);
   // APAGAR em dois passos: confirmar, e — se o modelo está em uso num follow-up
   // ou no prompt do agente — ver ONDE antes de confirmar de novo.
   const [apagando, setApagando] = useState<{ tpl: TemplateParceiro; usos: string[] | null } | null>(null);
@@ -117,19 +146,28 @@ export function TemplatesParceiroClient({
     setRodape("");
     setExemplos([]);
     setCabecalho("");
+    setExemploCabecalho("");
     setMidiaUrl("");
     setBotoes([]);
     setCategoria("UTILITY");
+    setAvisoDeSeguranca(true);
+    setValidade("10");
+    setTextoDoCopiar("");
   };
 
   const abrirEdicao = (tpl: TemplateParceiro) => {
     const f = paraFormulario(lerConteudo(tpl.components));
-    setEditando({ name: tpl.name, language: tpl.language });
+    setEditando({ name: tpl.name, language: tpl.language, status: tpl.status });
     setNome(tpl.name);
     setIdioma(tpl.language);
     setCategoria(tpl.category ?? "UTILITY");
     setCabecalho(f.cabecalho);
+    setExemploCabecalho(f.exemploDoCabecalho);
     setMidiaUrl(f.midiaUrl);
+    const auth = lerAutenticacao(tpl.components);
+    setAvisoDeSeguranca(auth.avisoDeSeguranca);
+    setValidade(auth.validadeMinutos === null ? "" : String(auth.validadeMinutos));
+    setTextoDoCopiar(auth.textoDoBotao);
     setCorpo(f.corpo);
     setRodape(f.rodape);
     setExemplos(f.exemplos);
@@ -143,6 +181,32 @@ export function TemplatesParceiroClient({
   // descobre a exigência numa recusa que chega horas depois.
   const nVariaveis = contarVariaveis(corpo);
 
+  // Fork (2026-11-13): o pedido como ele vai à plataforma, conferido pelas
+  // regras da Meta a cada tecla. O botão de enviar trava enquanto houver
+  // problema; aviso não trava. O servidor confere de novo antes de enviar.
+  const autenticacao = categoria === "AUTHENTICATION";
+  const opcoesDeAutenticacao = {
+    avisoDeSeguranca,
+    validadeMinutos: validade.trim() === "" ? null : Number(validade),
+    textoDoBotao: textoDoCopiar,
+  };
+  const componentes = autenticacao
+    ? montarAutenticacao(opcoesDeAutenticacao)
+    : montarComponents({
+        body: corpo,
+        footer: rodape,
+        exemplos,
+        cabecalho: { texto: cabecalho, midiaUrl, exemplo: exemploCabecalho },
+        botoes,
+      });
+  const problemas = validarModelo({
+    name: nome,
+    language: idioma,
+    category: categoria,
+    components: autenticacao ? componentes : comBotoesDoFormulario(componentes, botoes),
+  });
+  const previaDaAutenticacao = textoDaAutenticacao(opcoesDeAutenticacao);
+
   const lista = useQuery({
     queryKey: ["partner-templates", rota],
     queryFn: async () =>
@@ -151,7 +215,9 @@ export function TemplatesParceiroClient({
 
   const acao = useMutation({
     mutationFn: async (corpoReq: Record<string, unknown>) =>
-      apiClient.post<{ data: { sincronizadas: number; total: number } }>(rota, corpoReq),
+      apiClient.post<{
+        data: { sincronizadas: number; total: number; categoria?: string | null; categoriaPedida?: string };
+      }>(rota, corpoReq),
     onSuccess: (r, corpoReq) => {
       qc.invalidateQueries({ queryKey: ["partner-templates"] });
       // Invalida também o seletor do inbox: sem isto o operador sincroniza aqui,
@@ -162,8 +228,17 @@ export function TemplatesParceiroClient({
       toast.success(
         corpoReq.acao === "editar"
           ? t("Modelo atualizado e enviado para revisão.")
-          : `${r.data.sincronizadas} ${t("de")} ${r.data.total} ${t("sincronizada(s).")}`,
+          : corpoReq.acao === "criar"
+            ? t("Modelo enviado para a revisão da Meta. Ele aparece como Pendente até ela decidir.")
+            : `${r.data.sincronizadas} ${t("de")} ${r.data.total} ${t("sincronizada(s).")}`,
       );
+      // Fork: a Meta pode classificar o modelo em outra categoria (e Marketing custa mais).
+      const { categoria: dada, categoriaPedida: pedida } = r.data;
+      if (dada && pedida && dada !== pedida) {
+        toast.warning(
+          `${t("Você escolheu")} ${t(ROTULO_DA_CATEGORIA_DO_MODELO[pedida] ?? pedida)}, ${t("mas a Meta classificou o modelo como")} ${t(ROTULO_DA_CATEGORIA_DO_MODELO[dada] ?? dada)}.`,
+        );
+      }
       limparFormulario();
     },
     onError: (e: unknown) =>
@@ -232,7 +307,9 @@ export function TemplatesParceiroClient({
           className="grid scroll-mt-4 gap-4 rounded-md border border-border p-3 lg:grid-cols-[1fr_20rem]"
           data-formulario-do-modelo={editando ? "editar" : "criar"}
         >
-          <div className="flex flex-col gap-2">
+          {/* Fork: `min-w-0` deixa a coluna encolher no celular; sem ele, a opção
+              longa da categoria alargava a coluna para fora do cartão. */}
+          <div className="flex min-w-0 flex-col gap-2">
           {editando && (
             <p className="text-sm font-medium">
               {t("Editando")} <span className="font-mono">{editando.name}</span>{" "}
@@ -244,7 +321,7 @@ export function TemplatesParceiroClient({
           <div className="flex flex-wrap gap-2">
             <input
               value={nome}
-              onChange={(e) => setNome(e.target.value)}
+              onChange={(e) => setNome(e.target.value.toLowerCase().replace(/\s+/g, "_"))}
               placeholder="nome_do_modelo"
               aria-label={t("Nome do modelo")}
               disabled={!!editando}
@@ -277,8 +354,8 @@ export function TemplatesParceiroClient({
             value={categoria}
             onChange={(e) => setCategoria(e.target.value)}
             aria-label={t("Categoria")}
-            disabled={!!editando}
-            className="h-9 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
+            disabled={!!editando && !podeTrocarCategoria(editando.status)}
+            className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
           >
             <option value="UTILITY">
               {t("Utilidade — aviso de pedido, agendamento, cobrança")}
@@ -287,13 +364,51 @@ export function TemplatesParceiroClient({
             <option value="AUTHENTICATION">{t("Autenticação — código de verificação")}</option>
           </select>
 
+          {/* Fork (2026-11-13): AUTENTICAÇÃO tem o texto fixo da Meta ("<código> é
+              seu código de verificação.") e só o botão de copiar código. Texto
+              próprio, cabeçalho ou outros botões ali são recusados. */}
+          {autenticacao ? (
+            <div className="flex flex-col gap-2 rounded-md border border-border p-2" data-campos-de-autenticacao>
+              <p className="text-[11px] text-muted-foreground">
+                {t("No modelo de autenticação, o texto é fixo da Meta e o cliente recebe o código com um botão para copiar.")}
+              </p>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={avisoDeSeguranca}
+                  onChange={(e) => setAvisoDeSeguranca(e.target.checked)}
+                />
+                {t("Incluir o aviso para não compartilhar o código")}
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                {t("Validade do código, em minutos")}
+                <input
+                  type="number"
+                  min={LIMITES_DO_MODELO.validadeMinima}
+                  max={LIMITES_DO_MODELO.validadeMaxima}
+                  value={validade}
+                  onChange={(e) => setValidade(e.target.value)}
+                  aria-label={t("Validade do código, em minutos")}
+                  className="h-8 w-20 rounded-md border border-input bg-background px-2 text-sm"
+                />
+              </label>
+              <input
+                value={textoDoCopiar}
+                onChange={(e) => setTextoDoCopiar(e.target.value.slice(0, LIMITE_TEXTO_DO_BOTAO))}
+                placeholder={t("Texto do botão de copiar (opcional)")}
+                aria-label={t("Texto do botão de copiar")}
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              />
+            </div>
+          ) : (
+          <>
           {/* CABEÇALHO opcional: texto OU mídia, nunca os dois — a plataforma
               aceita um formato por definição, e mandar ambos é recusa. */}
           <div className="flex flex-wrap gap-2">
             <input
               value={cabecalho}
               onChange={(e) => {
-                setCabecalho(e.target.value);
+                setCabecalho(e.target.value.slice(0, LIMITE_CABECALHO));
                 if (e.target.value) setMidiaUrl("");
               }}
               placeholder={t("Cabeçalho de texto (opcional)")}
@@ -349,6 +464,16 @@ export function TemplatesParceiroClient({
               />
             </label>
           </div>
+
+          {contarVariaveis(cabecalho) > 0 && (
+            <input
+              value={exemploCabecalho}
+              onChange={(e) => setExemploCabecalho(e.target.value)}
+              placeholder={t("Exemplo da variável do cabeçalho")}
+              aria-label={t("Exemplo da variável do cabeçalho")}
+              className="h-8 rounded-md border border-amber-300 bg-background px-2 text-sm dark:border-amber-800/60"
+            />
+          )}
 
           <div className="flex flex-col gap-1">
             <textarea
@@ -407,7 +532,7 @@ export function TemplatesParceiroClient({
                   value={b.texto}
                   onChange={(e) => {
                     const p = [...botoes];
-                    p[i] = { ...b, texto: e.target.value };
+                    p[i] = { ...b, texto: e.target.value.slice(0, LIMITE_TEXTO_DO_BOTAO) };
                     setBotoes(p);
                   }}
                   placeholder={t("Texto do botão")}
@@ -425,6 +550,20 @@ export function TemplatesParceiroClient({
                     placeholder="https://…"
                     aria-label={`${t("URL do botão")} ${i + 1}`}
                     className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+                  />
+                )}
+                {/* Fork: link que termina em {{1}} pede exemplo, como o corpo. */}
+                {b.tipo === "url" && contarVariaveis(b.url ?? "") > 0 && (
+                  <input
+                    value={b.exemplo ?? ""}
+                    onChange={(e) => {
+                      const p = [...botoes];
+                      p[i] = { ...b, exemplo: e.target.value };
+                      setBotoes(p);
+                    }}
+                    placeholder={t("Exemplo do final do link")}
+                    aria-label={`${t("Exemplo do final do link")} ${i + 1}`}
+                    className="h-8 min-w-48 flex-1 rounded-md border border-amber-300 bg-background px-2 text-sm dark:border-amber-800/60"
                   />
                 )}
                 {b.tipo === "phone_number" && (
@@ -492,14 +631,34 @@ export function TemplatesParceiroClient({
             </div>
           )}
 
+          </>
+          )}
+
           {/* O formato do nome e o texto são validados PELA PLATAFORMA, e a
               recusa dela chega inteira ao operador. Repetir a regra aqui a faria
-              envelhecer separado da fonte. */}
+              envelhecer separado da fonte.
+              Fork (2026-11-13): o dono pediu a conferência ANTES de enviar. As
+              regras moram num lugar só (`lib/channels/regras-do-modelo.ts`), com
+              a fonte de cada número, e o servidor confere as mesmas. */}
+          {problemas.length > 0 && (
+            <ul className="flex flex-col gap-0.5 text-[11px]" data-problemas-do-modelo>
+              {problemas.map((p) => (
+                <li
+                  key={p.codigo}
+                  className={p.aviso ? "text-amber-700 dark:text-amber-400" : "text-destructive"}
+                >
+                  {t(TEXTO_DO_PROBLEMA[p.codigo])}
+                </li>
+              ))}
+            </ul>
+          )}
           <p className="text-[11px] text-muted-foreground">
             {editando
               ? t(
                   "Ao salvar, a plataforma revisa o modelo de novo. A Meta limita quantas vezes um modelo aprovado pode ser editado; se passar do limite, a resposta dela aparece aqui.",
-                )
+                ) +
+                " " +
+                t("Na Meta, um modelo aprovado pode ser editado 1 vez a cada 24 horas e até 10 vezes em 30 dias.")
               : t(
                   "A plataforma revisa antes de aprovar — o modelo nasce pendente e some da lista de envio até ela decidir.",
                 )}
@@ -508,18 +667,18 @@ export function TemplatesParceiroClient({
             <Button
               type="button"
               size="sm"
-              disabled={!nome.trim() || !corpo.trim() || acao.isPending}
+              disabled={travaOEnvio(problemas) || acao.isPending}
               onClick={() => {
-                const components = montarComponents({
-                  body: corpo,
-                  footer: rodape,
-                  exemplos,
-                  cabecalho: { texto: cabecalho, midiaUrl },
-                  botoes,
-                });
+                const components = componentes;
                 acao.mutate(
                   editando
-                    ? { acao: "editar", name: editando.name, language: editando.language, components }
+                    ? {
+                        acao: "editar",
+                        name: editando.name,
+                        language: editando.language,
+                        components,
+                        ...(podeTrocarCategoria(editando.status) ? { category: categoria } : {}),
+                      }
                     : { acao: "criar", name: nome.trim(), language: idioma.trim(), category: categoria, components },
                 );
               }}
@@ -533,6 +692,15 @@ export function TemplatesParceiroClient({
           {/* A prévia fica AO LADO, não embaixo: embaixo ela sai da tela junto
               com o botão de enviar, e o operador manda sem ter olhado. */}
           <div className="lg:sticky lg:top-4 lg:self-start">
+            {autenticacao ? (
+              <PreviaDaDefinicao
+                cabecalho=""
+                midiaUrl=""
+                corpo={previaDaAutenticacao.corpo}
+                rodape={previaDaAutenticacao.rodape}
+                botoes={[{ tipo: "quick_reply", texto: textoDoCopiar || t("Copiar código") }]}
+              />
+            ) : (
             <PreviaDaDefinicao
               cabecalho={cabecalho}
               midiaUrl={midiaUrl}
@@ -540,6 +708,7 @@ export function TemplatesParceiroClient({
               rodape={rodape}
               botoes={botoes}
             />
+            )}
           </div>
         </div>
       )}
@@ -573,7 +742,7 @@ export function TemplatesParceiroClient({
                   <span className="text-xs text-muted-foreground">{tpl.language}</span>
                   {tpl.category && (
                     <span className="rounded-md bg-muted px-1.5 text-[10px] uppercase text-muted-foreground">
-                      {tpl.category}
+                      {t(ROTULO_DA_CATEGORIA_DO_MODELO[tpl.category] ?? tpl.category)}
                     </span>
                   )}
                   {c.variaveis > 0 && (
@@ -587,9 +756,20 @@ export function TemplatesParceiroClient({
                       COR_DO_ESTADO[tpl.status?.toUpperCase()] ?? "text-muted-foreground",
                     )}
                   >
-                    {tpl.status}
+                    {t(ROTULO_DO_STATUS[tpl.status?.toUpperCase()] ?? tpl.status)}
                   </span>
                 </button>
+
+                {/* Fork (2026-11-13): a Meta classificou em outra categoria. Fica
+                    à vista, como o motivo da recusa, porque muda o preço. */}
+                {tpl.categoriaPedida && tpl.category && tpl.categoriaPedida !== tpl.category && (
+                  <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400" data-categoria-trocada>
+                    {t("Você escolheu")} {t(ROTULO_DA_CATEGORIA_DO_MODELO[tpl.categoriaPedida] ?? tpl.categoriaPedida)},{" "}
+                    {t("mas a Meta classificou o modelo como")}{" "}
+                    {t(ROTULO_DA_CATEGORIA_DO_MODELO[tpl.category] ?? tpl.category)}.
+                    {tpl.category === "MARKETING" ? ` ${t("Marketing custa mais por mensagem.")}` : ""}
+                  </p>
+                )}
 
                 {/* O motivo da recusa é o que diz o que corrigir, e fica SEMPRE
                     à vista — não escondido atrás do clique: quem precisa dele
@@ -616,10 +796,14 @@ export function TemplatesParceiroClient({
                     <div className="flex flex-wrap items-center gap-2">
                       {gerenciar && (
                         <>
+                          {/* Fork: só onde a Meta deixa (aprovado, recusado ou pausado). */}
+                          {podeEditar(tpl.status) && (
                           <Button type="button" variant="outline" size="sm" onClick={() => abrirEdicao(tpl)}>
                             <PencilSimple size={14} className="mr-1.5" aria-hidden />
                             {t("Editar")}
                           </Button>
+                          )}
+                          {podeApagar(tpl.status) && (
                           <Button
                             type="button"
                             variant="outline"
@@ -630,12 +814,14 @@ export function TemplatesParceiroClient({
                             <Trash size={14} className="mr-1.5" aria-hidden />
                             {t("Apagar")}
                           </Button>
+                          )}
                         </>
                       )}
                       <span className="ml-auto text-[10px] text-muted-foreground">
                         {t("Sincronizado em")} {new Date(tpl.syncedAt).toLocaleString(tagDoIdioma)}
                       </span>
                     </div>
+                    {detalheDoModelo?.(tpl)}
                   </div>
                 )}
               </li>

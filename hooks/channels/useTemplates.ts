@@ -86,6 +86,8 @@ export function useSaveTemplateValues() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["channel-templates"] });
       qc.invalidateQueries({ queryKey: ["templates-da-conversa"] });
+      // Fork: a tela de modelos compartilhada (canal oficial incluído) lê esta chave.
+      qc.invalidateQueries({ queryKey: ["partner-templates"] });
     },
   });
 }
